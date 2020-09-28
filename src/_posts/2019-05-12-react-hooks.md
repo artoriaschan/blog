@@ -1,0 +1,415 @@
+---
+title: React Hooks 详解
+date: 2019-05-12
+tags:
+  - react
+author: ArtoriasChan
+location: Beijing
+---
+
+# React Hooks 详解
+
+官网资料: [https://reactjs.org/docs/hooks-reference.html](https://reactjs.org/docs/hooks-reference.html)<br />参考链接: [https://juejin.im/post/5be8d3def265da611a476231](https://juejin.im/post/5be8d3def265da611a476231) - 精读《React Hooks》<br />参考资料: [https://medium.com/@ryardley/react-hooks-not-magic-just-arrays-cd4f1857236e](https://medium.com/@ryardley/react-hooks-not-magic-just-arrays-cd4f1857236e) - 《React hooks: not magic, just arrays》<br />参考资料: [https://zhuanlan.zhihu.com/p/48264713](https://zhuanlan.zhihu.com/p/48264713) - 对React Hooks的一些思考
+
+## 引言
+React Hooks 是 React `16.7.0-alpha` 版本推出的新特性，想尝试的同学安装此版本即可。<br />**React Hooks 要解决的问题是状态共享**，是继 [render-props](https://link.juejin.im?target=https%3A%2F%2Freactjs.org%2Fdocs%2Frender-props.html) 和 [higher-order components](https://link.juejin.im?target=https%3A%2F%2Freactjs.org%2Fdocs%2Fhigher-order-components.html) 之后的第三种状态共享方案，不会产生 JSX 嵌套地狱问题。<br />状态共享可能描述的不恰当，称为**状态逻辑复用**会更恰当，因为只共享数据处理逻辑，不会共享数据本身。
+
+### Render Prop
+```javascript
+class Cat extends React.Component {
+  render() {
+    const mouse = this.props.mouse;
+    return (
+      <img src="/cat.jpg" style={{ position: 'absolute', left: mouse.x, top: mouse.y }} />
+    );
+  }
+}
+
+class Mouse extends React.Component {
+  constructor(props) {
+    super(props);
+    this.handleMouseMove = this.handleMouseMove.bind(this);
+    this.state = { x: 0, y: 0 };
+  }
+
+  handleMouseMove(event) {
+    this.setState({
+      x: event.clientX,
+      y: event.clientY
+    });
+  }
+
+  render() {
+    return (
+      <div style={{ height: '100%' }} onMouseMove={this.handleMouseMove}>
+
+        {/*
+          Instead of providing a static representation of what <Mouse> renders,
+          use the `render` prop to dynamically determine what to render.
+        */}
+        {this.props.render(this.state)}
+      </div>
+    );
+  }
+}
+
+class MouseTracker extends React.Component {
+  render() {
+    return (
+      <div>
+        <h1>Move the mouse around!</h1>
+        <Mouse render={mouse => (
+          <Cat mouse={mouse} />
+        )}/>
+      </div>
+    );
+  }
+}
+```
+上述是官网给出的例子，我们来看主要是部分是下面这两句：
+```javascript
+Class  Mouse extends React.component{
+   ...
+   {this.props.render(this.state)}
+   ...
+}
+......
+<Mouse render={mouse => (
+    <Cat mouse={mouse} />
+)}/>
+```
+在使用Mouse组件的时候，通过一个render属性，传递一个可用组件Cat给父组件Mouse，而在Mouse组件中，可以将本身的state对象传递给Cat组件，Cat组件中的mouse属性的值与Mouse父组件中的state相同。
+
+精简来说: 就是父组件可以将自己的state传递给子组件，而子组件可以根据父组件的state对象，来进行render。
+<br />这样做的好处是：<br />（1）不用担心props的命名问题<br />（2）可以溯源，子组件的props一定是来自于直接父组件<br />（3）是动态构建的。
+
+### Render Prop与React Hooks比较
+为了更快理解 React Hooks 是什么，先看笔者引用的下面一段 renderProps 代码:
+```jsx
+function App() {
+  return (
+    <Toggle initial={false}>
+      {({ on, toggle }) => (
+        <Button type="primary" onClick={toggle}> Open Modal </Button>
+        <Modal visible={on} onOk={toggle} onCancel={toggle} />
+      )}
+    </Toggle>
+  )
+}
+```
+恰好,React Hooks解决的也是这个问题:
+```jsx
+function App() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <Button type="primary" onClick={() => setOpen(true)}>
+        Open Modal
+      </Button>
+      <Modal
+        visible={open}
+        onOk={() => setOpen(false)}
+        onCancel={() => setOpen(false)}
+      />
+    </>
+  );
+}
+```
+
+#### 这里首先解释一下useState这个内置Hooks:
+```javascript
+const [state, setState] = useState(initialState);
+```
+> 官网的介绍是这样:
+
+> Returns a stateful value, and a function to update it.
+> 返回一个状态化的值和一个用来更新该值的函数
+
+> During the initial render, the returned state (`state`) is the same as the value passed as the first argument (`initialState`).
+> 在初始化渲染时,这个返回的状态值和hook中的传入第一个参数initialState
+
+> The `setState` function is used to update the state. It accepts a new state value and enqueues a re-render of the component.
+> setState函数使用来更新state的,它接受一个新的状态值，并将组件的重新渲染排入队列。
+
+> 另外官网还提到initialState的懒初始化:
+
+> The `initialState` argument is the state used during the initial render. In subsequent renders, it is disregarded. If the initial state is the result of an expensive computation, you may provide a function instead, which will be executed only on the initial render:
+> initialState参数是在初始化渲染的时候使用的.在随后的重新渲染是,他是被忽略的,如果initialState是代价昂贵的计算结果时,应该提供一个函数来代替,他会在初次渲染时执行.
+> ```jsx
+const [state, setState] = useState(() => {
+  const initialState = someExpensiveComputation(props);
+  return initialState;
+});
+```
+
+
+可以看到，React Hooks 就像一个内置的打平 renderProps 库，我们可以随时创建一个值，与修改这个值的方法。看上去像 function 形式的 setState，其实这等价于依赖注入，与使用 setState 相比，**这个组件是没有状态的**。
+
+## 概述
+React Hooks 带来的好处不仅是 “更 FP(Functional Programming)，更新粒度更细，代码更清晰”，还有如下三个特性：
+
+1. 多个状态不会产生嵌套，写法还是平铺的（renderProps 可以通过 compose 解决，可不但使用略为繁琐，而且因为强制封装一个新对象而增加了实体数量）。
+
+2. Hooks 可以引用其他 Hooks。
+
+3. 更容易将组件的 UI 与状态分离。
+
+
+第二点展开说一下：Hooks 可以引用其他 Hooks，我们可以这么做：
+```javascript
+import { useState, useEffect } from "react";
+
+// 底层 Hooks, 返回布尔值：是否在线
+function useFriendStatusBoolean(friendID) {
+  const [isOnline, setIsOnline] = useState(null);
+
+  function handleStatusChange(status) {
+    setIsOnline(status.isOnline);
+  }
+
+  useEffect(() => {
+    ChatAPI.subscribeToFriendStatus(friendID, handleStatusChange);
+    return () => {
+      ChatAPI.unsubscribeFromFriendStatus(friendID, handleStatusChange);
+    };
+  });
+
+  return isOnline;
+}
+
+// 上层 Hooks，根据在线状态返回字符串：Loading... or Online or Offline
+function useFriendStatusString(props) {
+  const isOnline = useFriendStatusBoolean(props.friend.id);
+
+  if (isOnline === null) {
+    return "Loading...";
+  }
+  return isOnline ? "Online" : "Offline";
+}
+
+// 使用了底层 Hooks 的 UI
+function FriendListItem(props) {
+  const isOnline = useFriendStatusBoolean(props.friend.id);
+
+  return (
+    <li style={{ color: isOnline ? "green" : "black" }}>{props.friend.name}</li>
+  );
+}
+
+// 使用了上层 Hooks 的 UI
+function FriendListStatus(props) {
+  const statu = useFriendStatusString(props.friend.id);
+
+  return <li>{statu}</li>;
+}
+```
+这个例子中，有两个 Hooks：`useFriendStatusBoolean` 与 `useFriendStatusString`, `useFriendStatusString` 是利用 `useFriendStatusBoolean` 生成的新 Hook，这两个 Hook 可以给不同的 UI：`FriendListItem`、`FriendListStatus` 使用，而因为两个 Hooks 数据是联动的，因此两个 UI 的状态也是联动的。
+
+顺带一提，这个例子也可以用来理解 [对 React Hooks 的一些思考](https://zhuanlan.zhihu.com/p/48264713) 一文的那句话：**“有状态的组件没有渲染，有渲染的组件没有状态”**：
+
+- `useFriendStatusBoolean` 与 `useFriendStatusString` 是有状态的组件（使用 `useState`），没有渲染（返回非 UI 的值），这样就可以作为 **Custom Hooks** 被任何 UI 组件调用。
+
+- `FriendListItem` 与 `FriendListStatus` 是有渲染的组件（返回了 JSX），没有状态（没有使用 `useState`），这就是一个纯函数 UI 组件。
+
+### 利用 useState 创建 Redux
+Redux 的精髓就是 Reducer，而利用 React Hooks 可以轻松创建一个 Redux 机制：
+```jsx
+// 这就是 Redux
+function useReducer(reducer, initialState) {
+  const [state, setState] = useState(initialState);
+
+  function dispatch(action) {
+    const nextState = reducer(state, action); // 合并action和state,生成新的state
+    setState(nextState);
+  }
+
+  return [state, dispatch];
+}
+```
+这个自定义 Hook 的 value 部分当作 redux 的 state，setValue 部分当作 redux 的 dispatch，合起来就是一个 redux。而 react-redux 的 connect 部分做的事情与 Hook 调用一样：
+```jsx
+// 一个 Action
+function useTodos() {
+  const [todos, dispatch] = useReducer(todosReducer, []);
+
+  function handleAddClick(text) {
+    dispatch({ type: "add", text });
+  }
+
+  return [todos, { handleAddClick }];
+}
+
+// 绑定 Todos 的 UI
+function TodosUI() {
+  const [todos, actions] = useTodos();
+  return (
+    <>
+      {todos.map((todo, index) => (
+        <div>{todo.text}</div>
+      ))}
+      <button onClick={actions.handleAddClick}>Add Todo</button>
+    </>
+  );
+}
+```
+#### useReducer内置Hook
+```javascript
+const [state, dispatch] = useReducer(reducer, initialState);
+```
+> 官网对此的介绍如下:
+
+> An alternative to [useState](https://reactjs.org/docs/hooks-reference.html#usestate). Accepts a reducer of type (state, action) => newState, and returns the current state paired with a dispatch method. (If you’re familiar with Redux, you already know how this works.)
+
+> 关于懒初始化:
+
+> useReducer accepts an optional third argument, initialAction. If provided, the initial action is applied during the initial render. This is useful for computing an initial state that includes values passed via props:
+> ```jsx
+const initialState = {count: 0};
+
+function reducer(state, action) {
+  switch (action.type) {
+    case 'reset':
+      return {count: action.payload};
+    case 'increment':
+      return {count: state.count + 1};
+    case 'decrement':
+      return {count: state.count - 1};
+    default:
+      // A reducer must always return a valid state.
+      // Alternatively you can throw an error if an invalid action is dispatched.
+      return state;
+  }
+}
+
+function Counter({initialCount}) {
+  const [state, dispatch] = useReducer(
+    reducer,
+    initialState,
+    {type: 'reset', payload: initialCount},
+  );
+
+  return (
+    <>
+      Count: {state.count}
+      <button
+        onClick={() => dispatch({type: 'reset', payload: initialCount})}>
+        Reset
+      </button>
+      <button onClick={() => dispatch({type: 'increment'})}>+</button>
+      <button onClick={() => dispatch({type: 'decrement'})}>-</button>
+    </>
+  );
+}
+```
+
+> `useReducer` is usually preferable to `useState` when you have complex state logic that involves multiple sub-values. It also lets you optimize performance for components that trigger deep updates because [you can pass dispatch down instead of callbacks](https://reactjs.org/docs/hooks-faq.html#how-to-avoid-passing-callbacks-down).
+> 当你需要处理含有多个子值的复杂的状态逻辑时,使用useReducer通常比useState要好,并且他也可以优化那些触发深度更新的组件的性能,因为你可以通过dispatch来代替回调函数.
+
+
+不过这里需要注意的是，每次 `useReducer` 或者自己的 Custom Hooks 都不会持久化数据，所以比如我们创建两个 App，App1 与 App2:
+```jsx
+function App1() {
+  const [todos, actions] = useTodos();
+  return <span>todo count: {todos.length}</span>;
+}
+
+function App2() {
+  const [todos, actions] = useTodos();
+  return <span>todo count: {todos.length}</span>;
+}
+
+function All() {
+  return (
+    <>
+      <App1 />
+      <App2 />
+    </>
+  );
+}
+```
+这两个实例同时渲染时，并不是共享一个 todos 列表，而是分别存在两个独立 todos 列表。也就是 React Hooks 只提供状态处理方法，不会持久化状态。
+
+如果要真正实现一个 Redux 功能，也就是全局维持一个状态，任何组件 `useReducer` 都会访问到同一份数据，可以和 [useContext](https://reactjs.org/docs/hooks-reference.html#usecontext) 一起使用。
+
+大体思路是利用 `useContext` 共享一份数据，作为 Custom Hooks 的数据源。具体实现可以参考 [redux-react-hook](https://github.com/facebookincubator/redux-react-hook/blob/master/src/index.ts)。
+
+### 利用 useEffect 代替一些生命周期
+在 useState 位置附近，可以使用 useEffect 处理副作用：
+```jsx
+useEffect(() => {
+  const subscription = props.source.subscribe();
+  return () => {
+    // Clean up the subscription
+    subscription.unsubscribe();
+  };
+});
+```
+关于useEffect的内置Hook:
+```javascript
+useEffect(didUpdate);
+```
+> Accepts a function that contains imperative, possibly effectful code.
+> 接受包含命令式，可能有效的代码的函数。
+> Mutations, subscriptions, timers, logging, and other side effects are not allowed inside the main body of a function component (referred to as React’s render phase). Doing so will lead to confusing bugs and inconsistencies in the UI.
+> 函数组件的主体内部不允许使用Mutations，subscriptions，计时器，日志记录和其他副作用（称为React的渲染阶段）。这样做会导致UI中的错误和不一致性混乱。
+> Instead, use useEffect. The function passed to useEffect will run after the render is committed to the screen. Think of effects as an escape hatch from React’s purely functional world into the imperative world.
+> 相反，使用useEffect。传递给useEffect的函数将在渲染提交到屏幕后运行。将效果视为从React的纯粹功能性世界进入命令式世界的逃脱舱。
+> By default, effects run after every completed render, but you can choose to fire it [only when certain values have changed](https://reactjs.org/docs/hooks-reference.html#conditionally-firing-an-effect).
+> 默认情况下，效果在每次完成渲染后运行，但您可以选择仅在某些值发生更改时触发它。
+
+
+## 精读
+
+### Hooks 带来的约定
+
+Hook 函数必须以 "use" 命名开头，因为这样才方便 eslint 做检查，防止用 condition 判断包裹 useHook 语句。
+
+为什么不能用 condition 包裹 useHook 语句，详情可以见 [官方文档](https://reactjs.org/docs/hooks-rules.html#explanation)，这里简单介绍一下。
+
+React Hooks 并不是通过 Proxy 或者 getters 实现的（具体可以看这篇文章 [React hooks: not magic, just arrays](https://medium.com/@ryardley/react-hooks-not-magic-just-arrays-cd4f1857236e)），而是通过数组实现的，每次 `useState` 都会改变下标，如果 `useState` 被包裹在 condition 中，那每次执行的下标就可能对不上，导致 `useState` 导出的 `setter` 更新错数据。
+
+虽然有 [eslint-plugin-react-hooks](https://www.npmjs.com/package/eslint-plugin-react-hooks) 插件保驾护航，但这第一次将 “约定优先” 理念引入了 React 框架中，带来了前所未有的**代码命名和顺序限制**（函数命名遭到官方限制，JS 自由主义者也许会暴跳如雷），但带来的便利也是前所未有的（没有比 React Hooks 更好的状态共享方案了，约定带来提效，自由的代价就是回到 renderProps or HOC，各团队可以自行评估）。
+
+笔者认为，React Hooks 的诞生，也许来自于这个灵感：“不如通过增加一些约定，彻底解决状态共享问题吧！”
+
+### 状态与 UI 的界限会越来越清晰
+因为 React Hooks 的特性，如果一个 Hook 不产生 UI，那么它可以永远被其他 Hook 封装，虽然允许有副作用，但是被包裹在 `useEffect` 里，总体来说还是挺函数式的。而 Hooks 要集中在 UI 函数顶部写，也很容易养成书写无状态 UI 组件的好习惯，践行 “状态与 UI 分开” 这个理念会更容易。
+
+不过这个理念稍微有点蹩脚的地方，那就是 “状态” 到底是什么。
+```jsx
+function App() {
+  const [count, setCount] = useCount();
+  return <span>{count}</span>;
+}
+```
+我们知道 `useCount` 算是无状态的，因为 React Hooks 本质就是 renderProps 或者 HOC 的另一种写法，换成 renderProps 就好理解了：
+```jsx
+<Count>{(count, setCount) => <App count={count} setCount={setCount} />}</Count>;
+
+function App(props) {
+  return <span>{props.count}</span>;
+}
+```
+可以看到 App 组件是无状态的，输出完全由输入（Props）决定。<br />那么有状态无 UI 的组件就是 `useCount` 了：
+```jsx
+function useCount() {
+  const [count, setCount] = useState(0);
+  return [count, setCount];
+}
+```
+有状态的地方应该指 `useState(0)` 这句，不过这句和无状态 UI 组件 App 的 `useCount()` 很像，既然 React 把 `useCount` 成为自定义 Hook，那么 `useState` 就是官方 Hook，具有一样的定义，因此可以认为 `useCount` 是无状态的，`useState` 也是一层 renderProps，最终的状态其实是 `useState` 这个 React 内置的组件。<br />我们看 renderProps 嵌套的表达：
+```jsx
+<UseState>
+  {(count, setCount) => (
+    <UseCount>
+      {" "}
+      {/**虽然是透传，但给 count 做了去重，不可谓没有作用 */}
+      {(count, setCount) => <App count={count} setCount={setCount} />}
+    </UseCount>
+  )}
+</UseState>
+```
+能确定的是，App 一定有 UI，而上面两层父级组件一定没有 UI。为了最佳实践，我们尽量避免 App 自己维护状态，而其父级的 RenderProps 组件可以维护状态（也可以不维护状态，做个二传手）。因此可以考虑在 “有状态的组件没有渲染，有渲染的组件没有状态” 这句话后面加一句：没渲染的组件也可以没状态。
+
+## 总结
+把 React Hooks 当作更便捷的 RenderProps 去用吧，虽然写法看上去是内部维护了一个状态，但其实等价于注入、Connect、HOC、或者 renderProps，那么如此一来，使用 renderProps 的门槛会大大降低，因为 Hooks 用起来实在是太方便了，我们可以抽象大量 Custom Hooks，让代码更加 FP，同时也不会增加嵌套层级。

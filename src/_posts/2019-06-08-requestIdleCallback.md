@@ -1,0 +1,230 @@
+---
+title: requestIdleCallback-后台任务调度
+date: 2019-05-03
+tags:
+  - javascript
+author: ArtoriasChan
+location: Beijing  
+---
+
+## 前言
+
+最近在看关于React Concurrent的相关文章，起因是随着 React 16.8 正式发布，意味着 hooks 可以被正式使用了。而根据官方发布的 [React 16.x Roadmap](https://reactjs.org/blog/2018/11/27/react-16-roadmap.html)，2019 Q2下一个 minor 将正式发布 Concurrent Mode。所以在了解Concurrent时，注意到了requestIdleCallback这个api。
+
+在学JS的最初，我们就了解到一个情况，就是JS是单线程的，它只有执行完一段代码之后，才能执行另外的代码，在平时，这其实并不会受到影响，但是当你需要一些高频的操作时呢？比如你使用JS来完成一段动画，监听input的输入来频繁的操作DOM，scroll的滚动监听等，这个时候，我们多么希望，把这些计算量特别大的功能，直接另开一个线程去处理。
+
+## Worker
+
+说到多线程，可能你就想到了Worder，是的，Worker是一个多线程的功能，但Worker有个很大的限制，就是Worker只能进行一些单纯的JS计算，不能牵扯到DOM，而在JS很多动态效果中，有特别多的地方，是进行操控DOM元素的，而DOM元素的操作，才是最消耗性能的地方，这个时候Worker就显得有点鸡肋，所以虽然Worker方法已经出来了很多年了，但依然是不温不火。
+
+所以出现了一个实验性的API：requestIdleCallback
+
+## requestIdleCallback
+
+在了解requestIdleCallback之前，我们都知道JS的执行时单线程的，浏览器是多线程的，除了 JS 线程以外，还包括 UI 渲染线程、事件线程、定时器触发线程、HTTP 请求线程等等。JS 线程是可以操作 DOM 的，如果在操作 DOM 的同时 UI 线程也在进行渲染的话，就会发生不可预期的展示结果，因此 JS 线程与 UI 渲染线程是互斥的，每当 JS 线程执行时，UI 渲染线程会挂起，UI 更新会被保存在队列中，等待 JS 线程空闲后立即被执行。对于事件线程而言，当一个事件被触发时该线程会把事件添加到队列末尾，等待 JS 线程空闲后处理。因此，长时间的 JS 持续执行，就会造成 UI 渲染线程长时间地挂起，触发的事件也得不到响应，用户层面就会感知到页面卡顿甚至卡死了。
+
+所以解决卡顿问题的关键就是避免UI渲染线程长时间地挂起，这就要求我们控制JS的合理的执行时间。那么 JS 执行时间多久会是合理的呢？这里就需要提到帧率了，大多数设备的帧率为 60 次/秒，也就是每帧消耗 16.67 ms 能让用户感觉到相当流畅。浏览器的一帧的生命周期中包含如下图过程：
+
+![life-of-a-frame](~@assets/requestIdleCallback/life-of-a-frame.jpg)
+
+在一帧中，我们需要将 JS 执行时间控制在合理的范围内，不影响后续 Layout 与 Paint 的过程。而经常被大家所提及的 requestIdleCallback 就能够充分利用帧与帧之间的空闲时间来执行 JS，可以根据 callback 传入的 dealine 判断当前是否还有空闲时间（timeRemaining）用于执行。由于浏览器可能始终处于繁忙的状态，导致 callback 一直无法执行，它还能够设置超时时间（timeout），一旦超过时间（didTimeout）能使任务被强制执行。
+
+```javascript
+// 浏览器执行线程空闲时间调用 myWork，超过 2000ms 后立即必须执行
+requestIdleCallback(myWork, { timeout: 2000 });
+
+function myWork(deadline) {
+  // 如果有剩余时间，或者任务已经超时，并且存在任务就需要执行
+  while ((deadline.timeRemaining() > 0 || deadline.didTimeout)
+    && tasks.length > 0) {
+    doWorkIfNeeded();
+  }
+  // 当前存在任务，再次调用 requestIdleCallback，会在空闲时间执行 myWork
+  if (tasks.length > 0) {
+    requestIdleCallback(myWork, { timeout: 2000 });
+  }
+}
+```
+
+![idle-period](~@assets/requestIdleCallback/idle-period.png)
+
+结合上图，我们可以得知 requestIdleCallback 是在 Layout 与 Paint 之后执行的，这也就意味着 requestIdleCallback 里适合做 JS 计算，如果再进行 DOM 的变更，会重新触发 Layout 与 Paint，帧的时间也会因此不可控，`requestIdleCallback` 的兼容性也比较差。在 React 内部采用 `requestAnimationFrame` 作为 [ployfill](https://github.com/facebook/react/blob/v16.8.0/packages/scheduler/src/Scheduler.js#L455)，通过 [帧率动态调整](https://github.com/facebook/react/blob/v16.8.0/packages/scheduler/src/Scheduler.js#L649)，计算 timeRemaining，模拟 `requestIdleCallback`，从而实现时间分片（Time Slicing），一个时间片就是一个渲染帧内 JS 能获得的最大执行时间。`requestAnimationFrame` 触发在 Layout 与 Paint 之前，方便做 DOM 变更。
+
+![compatible](~@assets/requestIdleCallback/compatible.png)
+
+### 默认简单方法使用
+
+最简单的调用方式：
+
+```javascript
+var requestId = requestIdleCallback(cb);
+```
+
+这里的`requestId`与`setTimeout`，`setInterval`的返回值一样，是一个标识符，如果在之后，希望清理掉该回调的话，可以直接`cancelIdleCallback(requestId)`即可，关于这一点，与计时器是完全相同的。
+
+前面也说过了一点，回调函数会传入一个默认的deadline对象，它是`IdleDeadline`构造函数的一个实例，该构造函数，只支持两个属性
+
+```javascript
+didTimeout : Boolean
+// 是否超时触发，（只读）
+
+timeRemaining : function
+// 该帧剩余可用时间
+```
+
+其中，只包含一个属性didTimeout（只读），和一个方法timeRemaining。
+
+deadline就是这样一个基于`requestIdleCallback`的IdleDeadline的实例，默认情况下，它也只包含这两个可用的数据。
+
+在接下来，我们就来进一步更深入的了解一下这两个属性吧。
+
+### didTimeout
+
+说到这个属性的话，就不得不提一下requestIdleCallback的第二个参数，它是一个可配置的对象，只支持一个参数，timeout，如果一帧内，一直没有空闲的时间可以执行requestIdleCallback的回调函数的话，那么当到达timeout设置的超时时间，requestIdleCallback就不在保持原有的效果了，而是在到达超时时间时，立即把回调推入到正在执行的事件列表中，这个时候，requestIdleCallback的表现就与setTimeout的表现一致了。
+
+那么timeout是必须要设置的吗？这就要看具体情况了，如果这个方法，必须要在某段时间内执行，那么可以设置timeout，如果没有这个必要，那么可以完全不用管这个参数的，直接简单的调用即可。
+
+### timeRemaining
+
+在回调函数传入的参数deadline对象中，唯一的一个方法是：timeRemaining()，它是用来获取当前一帧还有多长时间结束的。
+
+如何理解这个呢，先来看之前的一张图，该图是取自W3C官方文档中的：
+
+![idle-period](~@assets/requestIdleCallback/idle-period.png)
+
+该图中的`frame#1`，`frame#2`就是两个帧，每个帧的持续时间是`(100/60 = 16.66ms)`，而在每一帧内部，TASK和redering只花费了一部分时间，并没有占据整个帧，那么这个时候，如图中`idle period`的部分就是空闲时间，而每一帧中的空闲时间，根据该帧中处理事情的多少，复杂度等，消耗不等，所以空闲时间也不等。
+
+而对于每一个`deadline.timeRemaining()`的返回值，就是如图中，`Idle Callback`到所在帧结尾的时间（ms级）。
+
+之前，我们忽略了一点，我们之前假设的requestIdleCallback的回调函数，处理的都是很简单的问题，那么如果回调函数，处理的是一个很复杂的问题呢？而这个很复杂的问题在时间上的消耗，甚至大于一个帧的时间呢？
+
+不做任何处理，在一次回调中，处理所有的回调，结果直接阻塞掉了原有的rAF的处理，这样就会导致rAF的动画出现卡顿的情况，如果这样的话，那么rIC就变得有些鸡肋了。
+
+```javascript
+//核心代码，rIC复杂回调
+function cb1(deadline){
+    var i = 0,
+        len = 10000,
+        secs = new Date().getTime();
+
+    add("rIC回调中，执行了一个"+len+"长度的循环");
+    for(i;i<len;i++){
+        if(i*10%len == 0){
+            add("rIC 回调中，第"+i+"次循环","c-f00");
+        }
+        console.log("i="+i);
+    }
+    add("rIC消耗时间="+((new Date().getTime()) - secs),"c-f00");
+}
+function _cb1(){
+    
+    var i = 0,
+        len = 5;
+    
+    info.html("");
+    
+    function _s(){
+        if(i < len){
+            add("rAF 循环次数 i="+i);
+            rAF(_s);
+            i++;
+        }
+    }
+    
+    rIC(cb1);
+    
+    rAF(_s);
+}
+$("#btn1").on("click",_cb1);
+```
+
+那么如何避免呢，这就要靠本小节中的timeRemaining方法了，它可以获取每一帧的剩余空闲时间，而我们的这些处理，只需要在剩余的空闲时间来做就可以了，不需要实时性的处理，甚至，如果毎帧的空余时间短，我都接受多占用几个帧的空余时间，分段来处理掉这样问题。
+
+所以在实例中的优化方法就是：把这个复杂的回调，分段处理:
+
+```javascript
+//核心代码，rIC复杂回调(分段回调)
+
+function cb2(deadline){
+    var i = 0,
+        len = 1000;
+
+    add("rIC回调中，执行了一个"+len+"长度的循环");
+    function _s(deadline){
+    
+        for(i;i<len;i++){
+            //表示该帧还有剩余的空闲时间时间
+            if(deadline.timeRemaining() > 0){
+                console.log("i="+i);
+    
+                if(i*10%len == 0){
+                    add("rIC 回调中，第"+i+"次循环","c-f00");
+                }
+            }else{
+                rIC(_s);
+                break;
+            }
+        }
+    }
+    _s(deadline);
+    
+}
+function _cb2(){
+    
+    var i = 0,
+        len = 5;
+    
+    info.html("");
+    
+    function _s(){
+        if(i < len){
+            add("rAF 循环次数 i="+i);
+            rAF(_s);
+            i++;
+        }
+    }
+    rIC(cb2);
+    rAF(_s);
+}
+$("#btn2").on("click",_cb2);
+```
+
+### cancelIdleCallback
+
+既然可以设置一个requestIdleCallback的回调，那么也可以取消掉一个，它就是对应于requestIdleCallback的cancelIdleCallback方法。其调用方法特别简单，与setTimeout完全相同。
+
+```javascript
+//定义一个
+var requestId = requestIdleCallback(function cb1(deadline){
+    console.log("deadline.timeRemaining="+deadline.timeRemaining());
+});
+
+//取消掉
+cancelIdleCallback(requestId);
+```
+
+### 注意事项
+
+1. timeRemaining有一个特性需要注意一下，那就是它获取的值，最大不会操过50ms，也就是说，就算没有使用rAF的循环模式，在代码中，没有任何这样的循环的话，timeRemaining的取值，也不会大于50ms的，这个可以自己做一个简单的示例。copy如下代码，直接到控制台执行即可：
+
+```javascript
+requestIdleCallback(function cb1(deadline){
+    console.log("deadline.timeRemaining="+deadline.timeRemaining());
+});
+```
+
+为什么会这样呢，因为这个是W3C中的一个标准…来看下W3C中，该情况的一个描述图：
+
+![min-timeRemaining](~@assets/requestIdleCallback/min-timeRemaining.png)
+
+它在说明，如果没rAF这样的循环处理，浏览器一直处于空闲状态的话，deadline.timeRemaining可以得到的最长时间，也是50ms。
+
+2. requestIdleCallbakc的执行与requestAnimationFrame有一个相同的特性，不管当前帧，是否有空闲时间，它的最早执行时间，都是在下一帧开始的，
+
+3. 浏览器对后来的动画做过一些优化，如果当前页面没有处于激活态的话，那么该页的空闲时间，rIC回调，就不会高频的去触发，而是会每隔10s才会触发一次，以节省设备的功耗，该方案在CSS3动画，（从跑马灯说起中，有这样的示例）requestAnimationFrame的动画中，都有这样的处理的。
+
+## 参考文章
+
+* [request​Idle​Callback](https://developer.mozilla.org/zh-CN/docs/Web/API/Window/requestIdleCallback)
+* [requestIdleCallback-后台任务调度](http://www.zhangyunling.com/?p=702)
+* [深入剖析 React Concurrent](https://zhuanlan.zhihu.com/p/60307571)

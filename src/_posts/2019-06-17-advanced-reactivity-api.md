@@ -1,0 +1,275 @@
+---
+title: Advanced Reactivity API
+date: 2019-06-17
+tags:
+  - vue
+  - javascript
+author: ArtoriasChan
+location: Beijing  
+---
+
+# Advanced Reactivity API
+
+原文链接: [https://github.com/vuejs/rfcs/blob/advanced-reactivity-api/active-rfcs/0000-advanced-reactivity-api.md](https://github.com/vuejs/rfcs/blob/advanced-reactivity-api/active-rfcs/0000-advanced-reactivity-api.md)
+
+## 摘要
+提供独立的API以创建和观察响应状态。
+
+## 基础例子
+
+```javascript
+import { state, value, computed, watch } from '@vue/observer'
+
+// reactive object
+// equivalent of 2.x Vue.observable()
+const obj = state({ a: 1 })
+
+// watch with a getter function
+watch(() => obj.a, value => {
+  console.log(`obj.a is: ${value}`)
+})
+
+// a "pointer" object that has a .value property
+const count = value(0)
+
+// computed "pointer" with a read-only .value property
+const plusOne = computed(() => count.value + 1)
+
+// pointers can be watched directly
+watch(count, (count, oldCount) => {
+  console.log(`count is: ${count}`)
+})
+
+watch(plusOne, countPlusOne => {
+  console.log(`count plus one is: ${countPlusOne}`)
+})
+```
+## 动机
+
+### 反应系统从组件实例中解耦
+Vue的反应系统从以下几方面加强了Vue:
+
+- 跟踪组件渲染期间使用的依赖关系，以便自动重新渲染组件
+- 跟踪计算属性的依赖关系，以便在必要时仅重新计算值
+- 暴露 `this.$watch` API,以便用户执行自定义副作用以响应状态更改
+
+直到2.6版本, 反应系统很大程度上被认为是一种内部实现, 并且除了在组件内部运行以外, 没有专用的API去创建和监听响应式状态<br />然而, 这种耦合在技术上不是必须的. 在3.x版本上, 我们已经将反应系统分离成具有专属API的单独的包( `@vue/observer` ) ,因此,有必要公开这些API以启用更高级的用例<br />有了这些接口使得我们在不涉及组件的情况下, 封装状态逻辑和副作用变得有可能. 此外, 也使得我们有能力可以将创建的状态"链接"回组件实例,这也为组件逻辑复用机制提供了强大的支持.
+## 细节设计
+
+### 响应式对象
+在2.6版本上, 我们介绍了 `observable` API用来创建响应式对象. 我们已经注意到这些命名会导致一部分熟悉Rxjs或者其他响应式编程的开发者感到困惑, 其中术语"observable"一般被用来表示事件流. 所以我们将其更名为 `state` :
+
+```javascript
+import { state } from 'vue'
+
+const object = state({
+  count: 0
+})
+```
+
+
+他的功能和2.6的`Vue.observable`相近. 返回的对象就像普通对象一样,当在响应计算（渲染函数,计算属性getter和观察器getter）中访问其属性时,它们将被跟踪为依赖项.对这些属性的突变将导致相应的计算重新运行.
+
+### 值指针
+`state` API不能用于原始值类型,因为:
+
+- Vue通过拦截属性访问来追踪依赖. 在响应式计算中使用原始值类型不能被追踪到.
+- Javascript原始值类型不能通过引用传递.直接传递值意味着接收函数在原始值发生改变时来获取最新的值
+
+一种简单的解决方案是将值包装进可以传递引用的对象中,这就是 `value` API所做的事情:
+
+```javascript
+import { value } from 'vue'
+
+const countPointer = value(0)
+```
+
+
+`value` API为原始值创建了一个包装对象, 称其为指针(这在严格意义上讲不是C指针，但概念非常接近). 一个指针是一个拥有 `.value` 属性的响应式对象. 这个属性指向被持有的实际的值, 并且这个值是可写的:
+
+```javascript
+// read the value
+console.log(countPointer.value) // 0
+
+// mutate the value
+countPointer.value++
+```
+指针主要用于保存原始值, 但是他也可以保存其他任何值,即使是深层嵌套的对象和数组. 非原始值被保存到指针中的行为和由 `state` 创建的响应式对象相似.
+
+### 计算指针
+除了普通值指针, 我们也可以创建计算指针:
+
+```javascript
+import { value, computed } from 'vue'
+
+const count = value(0)
+const countPlusOne = computed(() => count.value + 1)
+
+console.log(countPlusOne.value) // 1
+count.value++
+console.log(countPlusOne.value) // 2
+```
+
+计算指针默认是只读的 - 分配给他value属性将会导致一个错误.<br />计算指针可以通过传递一个写回调函数作为第二个参数来使其可写:
+
+```javascript
+const writablePointer = computed(
+  // read
+  () => count.value + 1,
+  // write
+  val => {
+    count.value = val - 1
+  }
+)
+```
+
+计算指针的行为和组件中的计算属性相类似: 他们都追踪依赖, 都是只在依赖修改时进行重新计算
+
+### 观察者
+所有的 `.value` 的访问都是响应式的, 都可以被独立的 `watch` API所追踪<br />**NOTE: 和2.x不同 所有的 **`**watch**` **API默认是即时的**<br />`watch` 可以和简单函数调用. 这个函数将被即时调用, 并且无论何时,只要依赖改变后, 都会被再次调用:
+
+```javascript
+import { value, watch } from 'vue'
+
+const count = value(0)
+
+// watch and re-run the effect
+watch(() => {
+  console.log('count is: ', count.value)
+})
+// -> count is: 0
+
+count.value++
+// -> count is: 1
+```
+
+#### 具有Getter的观察者
+当使用单个函数时, 在执行期间访问的任何被动属性都被跟踪为依赖项. 计算和副作用都会被一起执行. 要将两者分开，我们可以传递两个函数:
+
+```javascript
+watch(
+  // 1st argument (the "computation", or getter) should return a value
+  () => count.value + 1,
+  // 2nd argument (the "effect", or callback) only fires when value returned
+  // from the getter changes
+  value => {
+    console.log('count + 1 is: ', value)
+  }
+)
+// -> count + 1 is: 1
+
+count.value++
+// -> count + 1 is: 2
+```
+
+#### 观察者指针
+传入的第一个参数可以为一个指针:
+
+```javascript
+// double is a computed pointer
+const double = computed(() => count.value * 2)
+
+// watch a pointer directly
+watch(double, value => {
+  console.log('double the count is: ', value)
+})
+// -> double the count is: 0
+
+count.value++
+// -> double the count is: 2
+```
+
+<a name="HrSJd"></a>
+### 停止观察者
+`watch` API调用会返回一个停止句柄:
+
+```javascript
+const stop = watch(...)
+
+// stop watching
+stop()
+```
+
+如果在生命周期钩子或组件实例的data()内部调用watch, 则在卸载关联的组件实例时将自动停止watch:
+
+```javascript
+export default {
+  created() {
+    // stopped automatically when the component unmounts
+    watch(() => this.id, id => {
+      // ...
+    })
+  }
+}
+```
+
+#### 副作用清理
+副作用回调还可以返回一个清理函数，当以下情况调用时都会调用它：
+
+- 观察者即将重新运行
+- 观察者停止
+
+```javascript
+watch(idPointer, id => {
+  const token = performAsyncOperation(id)
+
+  return () => {
+    // id has changed or watcher is stopped.
+    // invalidate previously pending async operation
+    // 使先前挂起的异步操作取消掉
+    token.cancel()
+  }
+})
+```
+
+#### Non-Immediate 观察者
+创建和2.x类似的non-immediate 观察者, 通过第三个参数传递额外的选项即可
+
+```javascript
+watch(
+  () => count.value + 1,
+  () => {
+    console.log(`count changed`)
+  },
+  { immediate: false }
+)
+```
+
+#### 给组件暴露指针
+虽然这个提案意在处理组件外的响应式状态, 但状态也应该在组件内应用<br />在组件的 `data()` 方法内, 指针可以被返回:
+
+```javascript
+import { value } from 'vue'
+
+export default {
+  data() {
+    return {
+      count: value(0)
+    }
+  }
+}
+```
+
+**当指针在 `data()` 作为跟级别属性被返回时, 他会作为组件实例的直接访问属性. **这意味着通过 `.value` 访问值不是必须的-值可以通过 `this.count` 直接进行访问和修改,并且可以在模板上直接引用:
+
+```javascript
+<div @click="count++">
+  {{ count }}
+</div>
+```
+
+#### API之外
+这里提出的APIs只是低级构成块. 严格来说, 它们提供了我们全局状态管理所需的一切, 所以说Vuex可以被重写,以至于作为这些APIs之上的很薄的一层封装.此外，当这些APIs结合以编程方式挂钩组件生命周期的能力时，我们可以提供具有类似于React Hooks的逻辑重用机制。
+
+## 缺点
+要在保持“可跟踪”和“反应”的同时传递状态，必须在包装器对象（指针）中传递值。这是一个新概念，可能比基本API更难学。但是，这些API适用于高级用例，因此学习成本应该是可以接受的。
+
+## 未解决的问题
+
+- `watch` API和现有的 `this.$watch` API和组件中的 `watch` 选项相重叠. 实际上, 这个独立的 `watch` API提供一个现有APIs的超集, 这使得三个API的存在显得冗余和不一致.
+
+**我们应该废弃 `this.$watch` 和 `watch` 组件选项吗?**<br />**<br />旁注: 移除掉 `this.$watch` 和 `watch` 选项也可以使得整个 `watch` API完全tree-shakable.<br />
+
+- 我们也可能暴露一个方法去检查一个对象是否是 value/computed 指针
+
+
