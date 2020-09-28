@@ -15,7 +15,5 @@
     "@vuepress/theme-blog": "^2.3.2",
     "vuepress": "^1.6.0"
   },
-  "dependencies": {
-    "jinrishici": "^1.0.6"
-  }
+  "dependencies": {}
 }

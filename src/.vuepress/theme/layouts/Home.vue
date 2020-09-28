@@ -6,14 +6,14 @@
 </template>
 
 <script>
-  import {load} from "jinrishici";
+  import {load} from "@/lib/jinrishici";
   export default {
     data () {
       return {
         poem: ""
       }
     },
-    created(){
+    mounted(){
       load(result => {
         const {status, data} = result;
         if(status === "success") {
