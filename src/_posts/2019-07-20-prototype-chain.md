@@ -9,8 +9,6 @@ author: ArtoriasChan
 location: Beijing  
 ---
 
-# 原型与原型链
-
 ## 构造函数
 
 ### 什么是构造函数

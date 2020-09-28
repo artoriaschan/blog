@@ -7,8 +7,6 @@ author: ArtoriasChan
 location: Beijing  
 ---
 
-# Vue编译部分浏览器怪癖兼容
-
 ## new Function()的问题
 代码如下：
 ```javascript

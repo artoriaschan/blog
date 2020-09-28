@@ -7,7 +7,7 @@ author: ArtoriasChan
 location: Beijing  
 ---
 
-# React的新版Context API
+## 前言
 
 React从16.3版本开始，更新了新版的Context API，使用了更加优雅的方式在组件中传递props属性，官网中对Context有以下的介绍
 > Context 通过组件树提供了一个传递数据的方法，从而避免了在每一个层级手动的传递 props 属性。

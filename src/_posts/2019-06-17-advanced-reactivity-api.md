@@ -8,7 +8,7 @@ author: ArtoriasChan
 location: Beijing  
 ---
 
-# Advanced Reactivity API
+## 参考链接
 
 原文链接: [https://github.com/vuejs/rfcs/blob/advanced-reactivity-api/active-rfcs/0000-advanced-reactivity-api.md](https://github.com/vuejs/rfcs/blob/advanced-reactivity-api/active-rfcs/0000-advanced-reactivity-api.md)
 

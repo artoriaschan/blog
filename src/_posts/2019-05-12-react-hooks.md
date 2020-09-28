@@ -7,7 +7,7 @@ author: ArtoriasChan
 location: Beijing
 ---
 
-# React Hooks 详解
+## 参考资料
 
 官网资料: [https://reactjs.org/docs/hooks-reference.html](https://reactjs.org/docs/hooks-reference.html)<br />参考链接: [https://juejin.im/post/5be8d3def265da611a476231](https://juejin.im/post/5be8d3def265da611a476231) - 精读《React Hooks》<br />参考资料: [https://medium.com/@ryardley/react-hooks-not-magic-just-arrays-cd4f1857236e](https://medium.com/@ryardley/react-hooks-not-magic-just-arrays-cd4f1857236e) - 《React hooks: not magic, just arrays》<br />参考资料: [https://zhuanlan.zhihu.com/p/48264713](https://zhuanlan.zhihu.com/p/48264713) - 对React Hooks的一些思考
 
