@@ -1239,6 +1239,7 @@ export function appendChild (node: WeexElement, child: WeexElement) {
 再回到 patch 方法，首次渲染我们调用了 createElm 方法，这里传入的 parentElm 是 oldVnode.elm 的**父元素**，在我们的例子是 id 为 #app div 的父元素，也就是 Body；实际上整个过程就是递归创建了一个完整的 DOM 树并插入到 Body 上。
 
 ## 总结
-至此我们从主线上把模板和数据如何渲染成最终的 DOM 的过程分析完毕了。
+至此我们从主线上把模板和数据如何渲染成最终的 DOM 的过程分析完毕了。大致流程图如下：
+![first-render-flow](~@assets/vue-source-data-driven/first-render-flow.png)
 
 我们这里只是分析了最简单和最基础的场景，在实际项目中，我们是把页面拆成很多组件的，Vue 另一个核心思想就是组件化。那么下一章我们就来分析 Vue 的组件化过程。
