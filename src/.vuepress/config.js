@@ -7,6 +7,7 @@ module.exports = (options, context, api) => {
     theme: "@vuepress/blog",
     plugins: [require('./plugins/fancybox')],
     head: [
+      ['link', { rel: 'shortcut icon', type: 'image/x-icon', href: './favicon.ico' }],
       // add jquery and fancybox
       ['script', { src: 'https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.slim.min.js' }],
       ['script', { src: 'https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.5.2/jquery.fancybox.min.js' }],
