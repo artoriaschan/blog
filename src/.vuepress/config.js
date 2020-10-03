@@ -95,7 +95,7 @@ module.exports = (options, context, api) => {
         copyright: [
           {
             text: `Artorias Chan © ${new Date().getFullYear()}`,
-            link: ""
+            link: "/"
           }
         ]
       },
