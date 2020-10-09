@@ -429,7 +429,7 @@ constructor (
 
 createComponent 后返回的是组件 vnode，它也一样走到 vm._update 方法，进而执行了 patch 函数，我们在上一篇文章对 patch 函数做了简单的分析，那么下一节我们会对它做进一步的分析。
 
-## update
+## patch
 
 ### 前言
 通过前一章的分析我们知道，当我们通过 createComponent 创建了组件 VNode，接下来会走到 vm._update，执行 `vm.__patch__` 去把 VNode 转换成真正的 DOM 节点。
@@ -813,3 +813,628 @@ function createElm (
 那么到此，一个组件的 VNode 是如何创建、初始化、渲染的过程也就介绍完毕了。
 
 在对组件化的实现有一个大概了解后，接下来我们来介绍一下这其中的一些细节。我们知道编写一个组件实际上是编写一个 JavaScript 对象，对象的描述就是各种配置，之前我们提到在 _init 的最初阶段执行的就是 merge options 的逻辑，那么下一节我们从源码角度来分析合并配置的过程。
+
+## 合并配置
+### 前言
+通过之前章节的源码分析我们知道，new Vue 的过程通常有 2 种场景：
+* 一种是外部我们的代码主动调用 new Vue(options) 的方式实例化一个 Vue 对象
+* 另一种是我们上一节分析的组件过程中内部通过 new Vue(options) 实例化子组件
+
+无论哪种场景，都会调用构造函数，而在构造函数内又会去调用 this._init 方法。它首先会执行一个 merge options 的逻辑，相关的代码在 src/core/instance/init.js 中：
+```javascript
+// src/core/instance/init.js -> initMixin function
+
+Vue.prototype._init = function (options?: Object) {
+  // ...
+  // merge options
+  if (options && options._isComponent) {
+    // optimize internal component instantiation
+    // since dynamic options merging is pretty slow, and none of the
+    // internal component options needs special treatment.
+    initInternalComponent(vm, options)
+  } else {
+    vm.$options = mergeOptions(
+      resolveConstructorOptions(vm.constructor),
+      options || {},
+      vm
+    )
+  }
+  // ...
+}
+```
+我们可以看到在不同场景执行的配置合并也是不相同的，并且传入的options值也是不同的。下面会分场景讨论两种处理逻辑。
+我们以下面例子进行梳理：
+```javascript
+let childComp = {
+  template: '<div>{{msg}}</div>',
+  created() {
+    console.log('child created')
+  },
+  mounted() {
+    console.log('child mounted')
+  },
+  data() {
+    return {
+      msg: 'Hello Vue'
+    }
+  }
+}
+
+Vue.mixin({
+  created() {
+    console.log('parent created')
+  },
+  mounted() {
+    console.log('parent mounted')
+  }
+})
+
+let app = new Vue({
+  el: '#app',
+  render: h => h(childComp)
+})
+```
+### 外部调用场景
+当执行 new Vue 的时候，在执行 this._init(options) 的时候，就会执行如下逻辑去合并 options：
+```javascript
+// src/core/instance/init.js -> initMixin function
+
+vm.$options = mergeOptions(
+  resolveConstructorOptions(vm.constructor),
+  options || {},
+  vm
+)
+```
+主要逻辑是通过 mergeOptions 函数将 resolveConstructorOptions 函数的返回值和传入的 options 进行合并。
+
+resolveConstructorOptions 的实现先不考虑，在我们这个场景下，它还是简单返回 vm.constructor.options，相当于 Vue.options。
+
+而Vue.options则是在 initGlobalAPI 函数调用时挂载上的，代码在 src/core/global-api/index.js 中：
+```javascript
+export function initGlobalAPI (Vue: GlobalAPI) {
+  // src/core/global-api/index.js
+  // ...
+  Vue.options = Object.create(null)
+  ASSET_TYPES.forEach(type => {
+    Vue.options[type + 's'] = Object.create(null)
+  })
+
+  // this is used to identify the "base" constructor to extend all plain-object
+  // components with in Weex's multi-instance scenarios.
+  Vue.options._base = Vue
+
+  extend(Vue.options.components, builtInComponents)
+  // ...
+}
+```
+首先通过 Vue.options = Object.create(null) 创建一个空对象，然后遍历 ASSET_TYPES，ASSET_TYPES 的定义在 src/shared/constants.js 中：
+```javascript
+// src/shared/constants.js
+export const ASSET_TYPES = [
+  'component',
+  'directive',
+  'filter'
+]
+```
+经过上面的遍历之后，Vue.options的结构如下：
+```javascript
+Vue.options = {
+  components: {},
+  directives: {},
+  filters: {}
+}
+```
+接着执行了 Vue.options._base = Vue，它的作用在我们上节实例化子组件的时候介绍了。
+
+最后通过 extend(Vue.options.components, builtInComponents) 把一些内置组件扩展到 Vue.options.components 上。
+
+所以最终生成的Vue.options如下：
+```javascript
+Vue.options = {
+  _base: Vue,
+  components: {},
+  directives: {},
+  filters: {},
+  components: {
+    KeepAlive
+  }
+}
+```
+其中还要涉及各平台的参数的增加，在web平台的处理可以看到 src/platforms/web/runtime/index.js 中：
+```javascript
+extend(Vue.options.directives, platformDirectives)
+extend(Vue.options.components, platformComponents)
+// 整合后
+Vue.options = {
+  _base: Vue,
+  components: {},
+  directives: {
+    model,
+    show
+  },
+  filters: {},
+  components: {
+    KeepAlive，
+    Transition,
+    TransitionGroup
+  }
+}
+```
+那么回到 mergeOptions 这个函数，它的定义在 src/core/util/options.js 中：
+```javascript
+/**
+ * Merge two option objects into a new one.
+ * Core utility used in both instantiation and inheritance.
+ */
+export function mergeOptions (
+  parent: Object,
+  child: Object,
+  vm?: Component
+): Object {
+  if (process.env.NODE_ENV !== 'production') {
+    checkComponents(child)
+  }
+
+  if (typeof child === 'function') {
+    child = child.options
+  }
+
+  normalizeProps(child, vm)
+  normalizeInject(child, vm)
+  normalizeDirectives(child)
+
+  // Apply extends and mixins on the child options,
+  // but only if it is a raw options object that isn't
+  // the result of another mergeOptions call.
+  // Only merged options has the _base property.
+  if (!child._base) {
+    if (child.extends) {
+      parent = mergeOptions(parent, child.extends, vm)
+    }
+    if (child.mixins) {
+      for (let i = 0, l = child.mixins.length; i < l; i++) {
+        parent = mergeOptions(parent, child.mixins[i], vm)
+      }
+    }
+  }
+
+  const options = {}
+  let key
+  for (key in parent) {
+    mergeField(key)
+  }
+  for (key in child) {
+    if (!hasOwn(parent, key)) {
+      mergeField(key)
+    }
+  }
+  function mergeField (key) {
+    const strat = strats[key] || defaultStrat
+    options[key] = strat(parent[key], child[key], vm, key)
+  }
+  return options
+}
+```
+我们来看一下 mergeOptions 函数的处理逻辑，可以看到主要的逻辑如下：
+* 递归把 extends 和 mixins 合并到 parent 上
+* 遍历 parent，调用 mergeField 函数
+* 再遍历 child，如果 key 不在 parent 的自身属性上，则调用 mergeField 函数
+
+这里有意思的是 mergeField 函数，它对不同的 key 有着不同的合并策略。首先我们先看一下 mergeField 函数的声明：
+```javascript
+function mergeField (key) {
+  const strat = strats[key] || defaultStrat
+  options[key] = strat(parent[key], child[key], vm, key)
+}
+```
+可以看出执行的方法都是在strats中注册的相关的方法，或者调用默认的方法。至于注册的方法则是不同的key有不同的合并策略：
+```javascript
+// src/core/util/options.js
+
+const strats = config.optionMergeStrategies
+// ...
+strats.el = strats.propsData = function (parent, child, vm, key) {
+  if (!vm) {
+    warn(
+      `option "${key}" can only be used during instance ` +
+      'creation with the `new` keyword.'
+    )
+  }
+  return defaultStrat(parent, child)
+}
+// ...
+/**
+ * Data
+ */
+export function mergeDataOrFn (
+  parentVal: any,
+  childVal: any,
+  vm?: Component
+): ?Function {
+  if (!vm) {
+    // in a Vue.extend merge, both should be functions
+    if (!childVal) {
+      return parentVal
+    }
+    if (!parentVal) {
+      return childVal
+    }
+    // when parentVal & childVal are both present,
+    // we need to return a function that returns the
+    // merged result of both functions... no need to
+    // check if parentVal is a function here because
+    // it has to be a function to pass previous merges.
+    return function mergedDataFn () {
+      return mergeData(
+        typeof childVal === 'function' ? childVal.call(this, this) : childVal,
+        typeof parentVal === 'function' ? parentVal.call(this, this) : parentVal
+      )
+    }
+  } else {
+    return function mergedInstanceDataFn () {
+      // instance merge
+      const instanceData = typeof childVal === 'function'
+        ? childVal.call(vm, vm)
+        : childVal
+      const defaultData = typeof parentVal === 'function'
+        ? parentVal.call(vm, vm)
+        : parentVal
+      if (instanceData) {
+        return mergeData(instanceData, defaultData)
+      } else {
+        return defaultData
+      }
+    }
+  }
+}
+strats.data = function (
+  parentVal: any,
+  childVal: any,
+  vm?: Component
+): ?Function {
+  if (!vm) {
+    if (childVal && typeof childVal !== 'function') {
+      process.env.NODE_ENV !== 'production' && warn(
+        'The "data" option should be a function ' +
+        'that returns a per-instance value in component ' +
+        'definitions.',
+        vm
+      )
+
+      return parentVal
+    }
+    return mergeDataOrFn(parentVal, childVal)
+  }
+
+  return mergeDataOrFn(parentVal, childVal, vm)
+}
+// ...
+/**
+ * Hooks and props are merged as arrays.
+ */
+function mergeHook (
+  parentVal: ?Array<Function>,
+  childVal: ?Function | ?Array<Function>
+): ?Array<Function> {
+  const res = childVal
+    ? parentVal
+      ? parentVal.concat(childVal)
+      : Array.isArray(childVal)
+        ? childVal
+        : [childVal]
+    : parentVal
+  return res
+    ? dedupeHooks(res)
+    : res
+}
+
+function dedupeHooks (hooks) {
+  const res = []
+  for (let i = 0; i < hooks.length; i++) {
+    if (res.indexOf(hooks[i]) === -1) {
+      res.push(hooks[i])
+    }
+  }
+  return res
+}
+LIFECYCLE_HOOKS.forEach(hook => {
+  strats[hook] = mergeHook
+})
+// ...
+/**
+ * Assets
+ *
+ * When a vm is present (instance creation), we need to do
+ * a three-way merge between constructor options, instance
+ * options and parent options.
+ */
+function mergeAssets (
+  parentVal: ?Object,
+  childVal: ?Object,
+  vm?: Component,
+  key: string
+): Object {
+  const res = Object.create(parentVal || null)
+  if (childVal) {
+    process.env.NODE_ENV !== 'production' && assertObjectType(key, childVal, vm)
+    return extend(res, childVal)
+  } else {
+    return res
+  }
+}
+
+ASSET_TYPES.forEach(function (type) {
+  strats[type + 's'] = mergeAssets
+})
+// ...
+/**
+ * Watchers.
+ *
+ * Watchers hashes should not overwrite one
+ * another, so we merge them as arrays.
+ */
+strats.watch = function (
+  parentVal: ?Object,
+  childVal: ?Object,
+  vm?: Component,
+  key: string
+): ?Object {
+  // work around Firefox's Object.prototype.watch...
+  if (parentVal === nativeWatch) parentVal = undefined
+  if (childVal === nativeWatch) childVal = undefined
+  /* istanbul ignore if */
+  if (!childVal) return Object.create(parentVal || null)
+  if (process.env.NODE_ENV !== 'production') {
+    assertObjectType(key, childVal, vm)
+  }
+  if (!parentVal) return childVal
+  const ret = {}
+  extend(ret, parentVal)
+  for (const key in childVal) {
+    let parent = ret[key]
+    const child = childVal[key]
+    if (parent && !Array.isArray(parent)) {
+      parent = [parent]
+    }
+    ret[key] = parent
+      ? parent.concat(child)
+      : Array.isArray(child) ? child : [child]
+  }
+  return ret
+}
+/**
+ * Other object hashes.
+ */
+strats.props =
+strats.methods =
+strats.inject =
+strats.computed = function (
+  parentVal: ?Object,
+  childVal: ?Object,
+  vm?: Component,
+  key: string
+): ?Object {
+  if (childVal && process.env.NODE_ENV !== 'production') {
+    assertObjectType(key, childVal, vm)
+  }
+  if (!parentVal) return childVal
+  const ret = Object.create(null)
+  extend(ret, parentVal)
+  if (childVal) extend(ret, childVal)
+  return ret
+}
+strats.provide = mergeDataOrFn
+```
+我们整理如下：
+* el，propsData 使用默认的合并规则
+* data 使用 mergeDataOrFn 的合并规则
+* LIFECYCLE_HOOKS 使用 mergeHook 的合并规则
+* ASSET_TYPES 使用 mergeAssets 的合并规则
+* ASSET_TYPES 使用 mergeAssets 的合并规则
+* watch 使用 自定义的合并规则
+* props，methods，inject，computed 使用 自定义的合并规则
+* provide 使用 mergeDataOrFn 合并规则
+
+这里我们详细看一下声明周期的合并策略：
+```javascript
+// src/core/util/options.js
+
+/**
+ * Hooks and props are merged as arrays.
+ */
+function mergeHook (
+  parentVal: ?Array<Function>,
+  childVal: ?Function | ?Array<Function>
+): ?Array<Function> {
+  const res = childVal
+    ? parentVal
+      ? parentVal.concat(childVal)
+      : Array.isArray(childVal)
+        ? childVal
+        : [childVal]
+    : parentVal
+  return res
+    ? dedupeHooks(res)
+    : res
+}
+
+function dedupeHooks (hooks) {
+  const res = []
+  for (let i = 0; i < hooks.length; i++) {
+    if (res.indexOf(hooks[i]) === -1) {
+      res.push(hooks[i])
+    }
+  }
+  return res
+}
+LIFECYCLE_HOOKS.forEach(hook => {
+  strats[hook] = mergeHook
+})
+// src/shared/constants.js
+
+export const LIFECYCLE_HOOKS = [
+  'beforeCreate',
+  'created',
+  'beforeMount',
+  'mounted',
+  'beforeUpdate',
+  'updated',
+  'beforeDestroy',
+  'destroyed',
+  'activated',
+  'deactivated',
+  'errorCaptured',
+  'serverPrefetch'
+]
+```
+所以对于钩子函数，他们的合并策略都是 mergeHook 函数。
+
+这个函数的实现也非常有意思，用了一个多层 3 元运算符，逻辑就是如果不存在 childVal ，就返回 parentVal；
+
+否则再判断是否存在 parentVal，如果存在就把 childVal 添加到 parentVal 后返回新数组；
+
+否则返回 childVal 的数组。最后使用 dedupeHooks 函数做去重处理。
+
+所以回到 mergeOptions 函数，一旦 parent 和 child 都定义了相同的钩子函数，那么它们会把 2 个钩子函数合并成一个数组。
+
+通过执行 mergeField 函数，把合并后的结果保存到 options 对象中，最终返回它。
+
+因此，在我们当前这个 case 下，执行完如下合并后，vm.$options 的值差不错如下的这样：
+```javascript
+vm.$options = {
+  components: { },
+  created: [
+    function created() {
+      console.log('parent created')
+    }
+  ],
+  mounted: [
+    function mounted() {
+      console.log('parent mounted')
+    }
+  ],
+  directives: { },
+  filters: { },
+  _base: function Vue(options) {
+    // ...
+  },
+  el: "#app",
+  render: function (h) {
+    //...
+  }
+}
+```
+### 组件场景
+由于组件的构造函数是通过 Vue.extend 继承自 Vue 的，先回顾一下这个过程，代码定义在 src/core/global-api/extend.js 中。
+```javascript
+// src/core/global-api/extend.js
+
+/**
+ * Class inheritance
+ */
+Vue.extend = function (extendOptions: Object): Function {
+  // ...
+  Sub.options = mergeOptions(
+    Super.options,
+    extendOptions
+  )
+
+  // ...
+  // keep a reference to the super options at extension time.
+  // later at instantiation we can check if Super's options have
+  // been updated.
+  Sub.superOptions = Super.options
+  Sub.extendOptions = extendOptions
+  Sub.sealedOptions = extend({}, Sub.options)
+
+  // ...
+  return Sub
+}
+```
+我们只保留关键逻辑，这里的 extendOptions 对应的就是前面定义的组件对象，它会和 Vue.options 合并到 Sub.opitons 中。
+
+接下来我们再回忆一下子组件的初始化过程，代码定义在 src/core/vdom/create-component.js 中：
+```javascript
+export function createComponentInstanceForVnode (
+  vnode: any, // we know it's MountedComponentVNode but flow doesn't
+  parent: any, // activeInstance in lifecycle state
+): Component {
+  const options: InternalComponentOptions = {
+    _isComponent: true,
+    _parentVnode: vnode,
+    parent
+  }
+  // ...
+  return new vnode.componentOptions.Ctor(options)
+}
+```
+这里的 vnode.componentOptions.Ctor 就是指向 Vue.extend 的返回值 Sub， 所以 执行 new vnode.componentOptions.Ctor(options) 接着执行 this._init(options)，因为 options._isComponent 为 true，那么合并 options 的过程走到了 initInternalComponent(vm, options) 逻辑。先来看一下它的代码实现，在 src/core/instance/init.js 中：
+```javascript
+export function initInternalComponent (vm: Component, options: InternalComponentOptions) {
+  const opts = vm.$options = Object.create(vm.constructor.options)
+  // doing this because it's faster than dynamic enumeration.
+  const parentVnode = options._parentVnode
+  opts.parent = options.parent
+  opts._parentVnode = parentVnode
+
+  const vnodeComponentOptions = parentVnode.componentOptions
+  opts.propsData = vnodeComponentOptions.propsData
+  opts._parentListeners = vnodeComponentOptions.listeners
+  opts._renderChildren = vnodeComponentOptions.children
+  opts._componentTag = vnodeComponentOptions.tag
+
+  if (options.render) {
+    opts.render = options.render
+    opts.staticRenderFns = options.staticRenderFns
+  }
+}
+```
+initInternalComponent 函数首先执行 `const opts = vm.$options = Object.create(vm.constructor.options)`，这里的 vm.constructor 就是子组件的构造函数 Sub，相当于 `vm.$options = Object.create(Sub.options)`。
+
+接着又把实例化子组件传入的子组件父 VNode 实例 parentVnode、子组件的父 Vue 实例 parent 保存到 vm.$options 中，另外还保留了 parentVnode 配置中的如 propsData 等其它的属性。
+
+这么看来，initInternalComponent 只是做了简单一层对象赋值，并不涉及到递归、合并策略等复杂逻辑。
+
+因此，在我们当前这个 case 下，执行完如下合并后vm.$options 的值差不多是如下这样：
+```javascript
+vm.$options = {
+  parent: Vue /*父Vue实例*/,
+  propsData: undefined,
+  _componentTag: undefined,
+  _parentVnode: VNode /*父VNode实例*/,
+  _renderChildren:undefined,
+  __proto__: {
+    components: { },
+    directives: { },
+    filters: { },
+    _base: function Vue(options) {
+        //...
+    },
+    _Ctor: {},
+    created: [
+      function created() {
+        console.log('parent created')
+      }, function created() {
+        console.log('child created')
+      }
+    ],
+    mounted: [
+      function mounted() {
+        console.log('parent mounted')
+      }，function mounted() {
+        console.log('child mounted')
+      }
+    ],
+    data() {
+       return {
+         msg: 'Hello Vue'
+       }
+    },
+    template: '<div>{{msg}}</div>'
+  }
+}
+```
+### 总结
+那么至此，Vue 初始化阶段对于 options 的合并过程就介绍完了，我们需要知道对于 options 的合并有 2 种方式，子组件初始化过程通过 initInternalComponent 方式要比外部初始化 Vue 通过 mergeOptions 的过程要快，合并完的结果保留在 vm.$options 中。
+
+纵观一些库、框架的设计几乎都是类似的，自身定义了一些默认配置，同时又可以在初始化阶段传入一些定义配置，然后去 merge 默认配置，来达到定制化不同需求的目的。只不过在 Vue 的场景下，会对 merge 的过程做一些精细化控制，虽然我们在开发自己的 JSSDK 的时候并没有 Vue 这么复杂，但这个设计思想是值得我们借鉴的。
