@@ -1400,4 +1400,27 @@ export function nextTick (cb?: Function, ctx?: Object) {
   }
 }
 ```
+下面我们来梳理一下他的实现逻辑和兼容性处理：
+* 可以从首段注释中看到关于 nextTick 的实现也是经过了多轮的思考，目前的版本则是将 microtask 的优先级放到最高
+* 首先判断是否原生支持 Promise，若有，则以 Promise 实现 timerFunc
+* 若没有则再判断是否支持 MutationObserver，若有则用 MutationObserver 的 API 实现 timerFunc
+* 若没有则再判断是否支持 setImmediate，当然这也代表这 nextTick 的实现降级到 macrotask
+* 最后则是使用 setTimeout 来实现 timerFunc 函数
+
+关于timerFunc，传入的则是事先声明好的基于 callbacks 数组实现的回调函数执行器 flushCallbacks。所以现在再来分析 nextTick 的原理就很简单了：其执行逻辑就是将传入的 cb 经过 handleError 处理放入到 callbacks，同时若当前没有在上一个 timerFunc 的执行期间——即 pending 标志位为 false——则启动 timerFunc 执行。而 timerFunc 则是使用微/宏任务进行封装的回调函数执行器 flushCallbacks。他会遍历当前的 callbacks 中的回调函数，并且依次执行。
+
+nextTick 函数最后还有一段逻辑：
+```javascript
+if (!cb && typeof Promise !== 'undefined') {
+  return new Promise(resolve => {
+    _resolve = resolve
+  })
+}
+```
+这是当 nextTick 不传 cb 参数的时候，提供一个 Promise 化的调用，比如：
+```javascript
+nextTick().then(() => {})
+```
+当 _resolve 函数执行，就会跳到 then 的逻辑中。
 ### 总结
+Vue.js 提供了 2 种调用 nextTick 的方式，一种是全局 API Vue.nextTick，一种是实例上的方法 vm.$nextTick，无论我们使用哪一种，最后都是调用 next-tick.js 中实现的 nextTick 方法。
