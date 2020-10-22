@@ -64,10 +64,10 @@ module.exports = (options, context, api) => {
         //   text: "文集",
         //   link: "/writings/"
         // },
-        // {
-        //   text: "摄影",
-        //   link: "/photos/"
-        // },
+        {
+          text: "摄影",
+          link: "/photos/"
+        },
         {
           text: '标签',
           link: '/tag/',
