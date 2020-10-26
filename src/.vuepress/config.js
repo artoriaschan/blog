@@ -5,7 +5,47 @@ module.exports = (options, context, api) => {
     title: "拾光",
     description: "Web development, Frontend, JavaScript",
     theme: "@vuepress/blog",
-    plugins: [require('./plugins/fancybox')],
+    plugins: [
+      require('./plugins/fancybox'),
+      [
+        'vuepress-plugin-container',
+        {
+          type: 'tip',
+          defaultTitle: '提示',
+        },
+      ],
+      [
+        'vuepress-plugin-container',
+        {
+          type: 'warning',
+          defaultTitle: '注意',
+        },
+      ],
+      [
+        'vuepress-plugin-container',
+        {
+          type: 'danger',
+          defaultTitle: '警告',
+        },
+      ],
+      [
+        'vuepress-plugin-container',
+        {
+          type: 'details',
+          defaultTitle: '详细信息',
+        },
+      ],
+      [
+        'vuepress-plugin-container',
+        {
+          type: 'details',
+          before: info => {
+            return `<details class="details-container"><summary>${info}</summary>`;
+          },
+          after: '</details>',
+        },
+      ],
+    ],
     head: [
       ['link', { rel: 'shortcut icon', type: 'image/x-icon', href: './favicon.ico' }],
       // add jquery and fancybox
