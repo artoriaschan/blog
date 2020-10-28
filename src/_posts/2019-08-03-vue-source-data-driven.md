@@ -1,5 +1,6 @@
 ---
-title: Vue 2.x 源码解读(一):数据驱动
+title: Vue 2.x 源码解读(一)
+subtitle: 数据驱动
 date: 2019-08-03
 tags:
   - vue

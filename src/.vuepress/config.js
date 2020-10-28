@@ -54,6 +54,7 @@ module.exports = (options, context, api) => {
       ['link', { rel: 'stylesheet', type: 'text/css', href: 'https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.5.2/jquery.fancybox.min.css' }]
     ],
     themeConfig: {
+      dateFormat: "YYYY/MM/DD",
       directories: [
         {
           id: "home",
@@ -114,7 +115,7 @@ module.exports = (options, context, api) => {
         },
         {
           text: '关于',
-          link: '/me/index/',
+          link: '/me/index',
         },
         {
           text: "Github",

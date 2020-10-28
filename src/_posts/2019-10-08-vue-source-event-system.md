@@ -1,5 +1,6 @@
 ---
-title: Vue 2.x 源码解读(五):事件系统
+title: Vue 2.x 源码解读(五)
+subtitle: 事件系统
 date: 2019-10-08
 tags:
   - vue

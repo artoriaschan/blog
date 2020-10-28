@@ -1,5 +1,6 @@
 ---
-title: React 16.x 源码解读(一):整体架构和全新概念
+title: React 16.x 源码解读(一)
+subtitle: 整体架构和全新概念
 date: 2019-10-19
 tags:
   - react

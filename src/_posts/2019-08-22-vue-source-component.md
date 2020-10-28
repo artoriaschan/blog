@@ -1,5 +1,6 @@
 ---
-title: Vue 2.x 源码解读(二):组件化
+title: Vue 2.x 源码解读(二)
+subtitle: 组件化
 date: 2019-08-22
 tags:
   - vue

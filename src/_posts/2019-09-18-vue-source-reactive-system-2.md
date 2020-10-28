@@ -1,5 +1,6 @@
 ---
-title: Vue 2.x 源码解读(三):响应式系统-2
+title: Vue 2.x 源码解读(三)
+subtitle: 响应式系统 - 下篇
 date: 2019-09-18
 tags:
   - vue
