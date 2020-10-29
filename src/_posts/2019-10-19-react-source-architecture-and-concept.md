@@ -457,7 +457,7 @@ root.current = uninitializedFiber;
   ├── packages        # 包含元数据（比如 package.json）和 React 仓库中所有 package 的源码（子目录 src）
   ├── scripts         # 各种工具链的脚本，比如git、jest、eslint等
 ```
-虽然结构看起来很像lerna，但实际上react的项目没有使用lerna来进行组织。但是和lerna项目一样，这里我们重点关注 packages 文件夹。
+实际上react的项目采用Monorepo结构来进行管理的，不同的功能分在不同的package里。所以我们重点关注 packages 文件夹。
 ### packages目录
 目录下的文件夹非常多，我们来看下：
 
