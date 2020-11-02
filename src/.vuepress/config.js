@@ -145,6 +145,9 @@ module.exports = (options, context, api) => {
     alias: {
       "@assets": path.resolve(__dirname, "../assets"),
       "@": path.resolve(__dirname, "../")
+    },
+    markdown: {
+      lineNumbers: true
     }
   };
 };
