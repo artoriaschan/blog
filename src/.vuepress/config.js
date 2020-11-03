@@ -8,6 +8,13 @@ module.exports = (options, context, api) => {
     plugins: [
       require('./plugins/fancybox'),
       [
+        '@vuepress/google-analytics',
+        {
+          'ga': 'G-LRH2QC3YT9'
+        }
+      ],
+      '@vuepress/back-to-top',
+      [
         'vuepress-plugin-container',
         {
           type: 'tip',

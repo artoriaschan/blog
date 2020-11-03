@@ -31,8 +31,8 @@
 </template>
 
 <script>
-import Toc from '@theme/components/Toc.vue'
-import PostMeta from '@theme/components/PostMeta.vue'
+import Toc from '@parent-theme/components/Toc.vue'
+import PostMeta from '@parent-theme/components/PostMeta.vue'
 import { Comment } from '@vuepress/plugin-blog/lib/client/components'
 
 export default {

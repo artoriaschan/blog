@@ -173,7 +173,7 @@ ReactDOM.render(<App />, document.getElementById('root'));
 ```
 ## Render 阶段
 render 阶段开始于 `performSyncWorkOnRoot` 或 `performConcurrentWorkOnRoot` 方法的调用。这取决于本次更新是同步更新还是异步更新。
-```javascript
+```javascript {19,38}
 // packages/react-reconciler/src/ReactFiberWorkLoop.old.js
 
 // This is the entry point for synchronous tasks that don't go
@@ -237,8 +237,8 @@ function performSyncWorkOnRoot(root) {
   return null;
 }
 ```
-在上述代码的注释中，我们解释了首次渲染会执行到 else 分支，并执行 renderRootSync 函数，name我们看一下该函数的定义：
-```javascript
+在上述代码的注释中，我们解释了首次渲染会执行到 else 分支，并执行 renderRootSync 函数，那么我们看一下该函数的定义：
+```javascript {18-25}
 // packages/react-reconciler/src/ReactFiberWorkLoop.old.js
 
 function renderRootSync(root: FiberRoot, lanes: Lanes) {
@@ -293,7 +293,7 @@ do {
 } while (true);
 ```
 而 `workLoopSync` 函数的定义如下，通过 while 循环同步执行 `performUnitOfWork` 函数，传入的参数则是 `workInProgress`：
-```javascript
+```javascript {8}
 // packages/react-reconciler/src/ReactFiberWorkLoop.old.js
 
 // The work loop is an extremely hot path. Tell Closure not to inline it.
@@ -306,7 +306,7 @@ function workLoopSync() {
 }
 ```
 那么我们接着看 `performUnitOfWork` 函数的执行逻辑是什么：
-```javascript
+```javascript {12,15}
 // packages/react-reconciler/src/ReactFiberWorkLoop.old.js
 
 function performUnitOfWork(unitOfWork: Fiber): void {
@@ -641,7 +641,7 @@ current.alternate = workInProgress;
 
 那么现在我们根据例子看几个对应 Fiber 节点的构造方法。
 #### HostRoot
-```javascript
+```javascript {26}
 // packages/react-reconciler/src/ReactFiberBeginWork.old.js
 
 function updateHostRoot(current, workInProgress, renderLanes) {
@@ -674,7 +674,7 @@ function updateHostRoot(current, workInProgress, renderLanes) {
 }
 ```
 #### IndeterminateComponent
-```javascript
+```javascript {67}
 // packages/react-reconciler/src/ReactFiberBeginWork.old.js
 
 function mountIndeterminateComponent(
@@ -747,7 +747,7 @@ function mountIndeterminateComponent(
   }
 }
 ```
-```javascript
+```javascript {61}
 function finishClassComponent(
   current: Fiber | null,
   workInProgress: Fiber,
@@ -824,7 +824,7 @@ function finishClassComponent(
 }
 ```
 #### HostComponent
-```javascript
+```javascript {34}
 // packages/react-reconciler/src/ReactFiberBeginWork.old.js
 
 function updateHostComponent(
@@ -921,7 +921,7 @@ export function reconcileChildren(
 ::: warning
 值得一提的是，`mountChildFibers` 函数与 `reconcileChildFibers` 函数这两个方法的逻辑基本一致。唯一的区别是：`reconcileChildFibers` 函数会维护 workInProgress Fiber tree 的状态，会为生成的 Fiber 节点带上 flags 属性；而`mountChildFibers` 函数则不会。
 :::
-#### effectTag
+#### flags
 我们知道，render 阶段的工作是在内存中进行，当工作结束后会通知 Renderer 需要执行的 DOM 操作。要执行 DOM 操作的具体类型就保存在 fiber.flags 中。
 ```javascript
 // packages/react-reconciler/src/ReactFiberFlags.js
@@ -1028,7 +1028,7 @@ function completeWork(
 和 `beginWork` 函数一样，我们根据 `current === null` 判断是首次渲染还是更新渲染。
 
 同时针对 HostComponent ，判断更新渲染时我们还需要考虑 `workInProgress.stateNode != null`（即该Fiber节点是否存在对应的DOM节点）
-```javascript
+```javascript {35,43}
 // packages/react-reconciler/src/ReactFiberCompleteWork.old.js
 
 function completeWork(
@@ -1178,7 +1178,7 @@ if (
 借用React团队成员Dan Abramov的话：effectList相较于Fiber树，就像圣诞树上挂的那一串彩灯。
 #### 流程结束
 至此，render 阶段全部工作完成。在 `performSyncWorkOnRoot` 函数中 fiberRootNode 被传递给 `commitRoot` 函数，开启 commit 阶段工作流程。
-```javascript {68}
+```javascript {66}
 // packages/react-reconciler/src/ReactFiberWorkLoop.old.js
 
 // This is the entry point for synchronous tasks that don't go
@@ -1281,7 +1281,6 @@ commit 阶段的主要工作（即 Renderer 的工作流程）分为三部分：
     // 触发useEffect回调与其他同步任务。由于这些任务可能触发新的渲染，所以这里要一直遍历执行直到没有任务
     flushPassiveEffects();
   } while (rootWithPendingPassiveEffects !== null);
-  flushRenderPhaseStrictModeWarningsInDEV();
   // ...
   // root指 fiberRootNode
   // root.finishedWork指当前应用的rootFiber
@@ -1435,7 +1434,7 @@ commit 阶段的主要工作（即 Renderer 的工作流程）分为三部分：
   * 在这些回调方法中可能触发新的更新，新的更新会开启新的render-commit流程。
 ### Before Mutation 阶段
 Before Mutation 阶段的代码很短，整个过程就是遍历 effectList 并调用 `commitBeforeMutationEffects` 函数处理。
-```javascript
+```javascript {33}
   // packages/react-reconciler/src/ReactFiberWorkLoop.old.js -> commitRootImpl function
 
   if (firstEffect !== null) {
@@ -1485,7 +1484,7 @@ Before Mutation 阶段的代码很短，整个过程就是遍历 effectList 并�
 
 #### commitBeforeMutationEffects
 `commitBeforeMutationEffects` 函数的定义如下：
-```javascript
+```javascript {7,16,25-28}
 // packages/react-reconciler/src/ReactFiberWorkLoop.old.js
 
 function commitBeforeMutationEffects() {
@@ -1528,7 +1527,7 @@ function commitBeforeMutationEffects() {
 `commitBeforeMutationEffectOnFiber` 函数是 `commitBeforeMutationLifeCycles` 函数的别名。
 
 在该方法内会调用ClassComponent实例的 `getSnapshotBeforeUpdate` 方法。
-```javascript
+```javascript {21-26}
 // packages/react-reconciler/src/ReactFiberCommitWork.old.js
 
 function commitBeforeMutationLifeCycles(
@@ -1650,7 +1649,7 @@ if (rootDoesHavePassiveEffects) {
 可见，useEffect异步执行的原因主要是防止同步执行时阻塞浏览器渲染。
 ### Mutation 阶段
 类似 Before Mutation 阶段，Mutation 阶段也是遍历 effectList，执行函数。这里执行的是 `commitMutationEffects` 函数。
-```javascript
+```javascript {12}
   // packages/react-reconciler/src/ReactFiberWorkLoop.old.js -> commitRootImpl function
 
   if (firstEffect !== null) {
@@ -1675,7 +1674,7 @@ if (rootDoesHavePassiveEffects) {
 ```
 #### commitMutationEffects
 commitMutationEffects 函数的代码定义如下：
-```javascript
+```javascript {38,48,75,81}
 // packages/react-reconciler/src/ReactFiberWorkLoop.old.js
 
 function commitMutationEffects(
@@ -1777,7 +1776,7 @@ function commitMutationEffects(
 当 Fiber 节点含有 Placement flags ，意味着该 Fiber 节点对应的 DOM 节点需要插入到页面中。
 
 调用的方法为 `commitPlacement` 函数，其定义如下：
-```javascript
+```javascript {9,14,42,45-49}
 // packages/react-reconciler/src/ReactFiberCommitWork.old.js
 
 function commitPlacement(finishedWork: Fiber): void {
@@ -1891,7 +1890,7 @@ function App() {
 当 Fiber 节点含有 Update flags，意味着该 Fiber 节点需要更新。调用的函数为 `commitWork` ，他会根据 `Fiber.tag` 分别处理。
 
 `commitWork` 函数的定义如下：
-```javascript
+```javascript {6,29-54}
 // packages/react-reconciler/src/ReactFiberCommitWork.old.js
 
 function commitWork(current: Fiber | null, finishedWork: Fiber): void {
@@ -2080,7 +2079,7 @@ function commitDeletion(
 ### Layout 阶段
 与前两个阶段类似，Layout 阶段也是遍历 effectList，执行函数。
 具体执行的函数是 `commitLayoutEffects` 。
-```javascript
+```javascript {14}
   // packages/react-reconciler/src/ReactFiberWorkLoop.old.js -> commitRootImpl function
 
   if (firstEffect !== null) {
@@ -2109,7 +2108,7 @@ function commitDeletion(
 ```
 #### commitLayoutEffects
 `commitLayoutEffects` 函数的定义如下：
-```javascript
+```javascript {12,17}
 // packages/react-reconciler/src/ReactFiberWorkLoop.old.js
 
 function commitLayoutEffects(root: FiberRoot, committedLanes: Lanes) {
@@ -2140,7 +2139,7 @@ function commitLayoutEffects(root: FiberRoot, committedLanes: Lanes) {
 #### commitLayoutEffectOnFiber
 `commitLayoutEffectOnFiber` 函数会根据 fiber.tag 对不同类型的节点分别处理。
 `commitLayoutEffectOnFiber` 为别名，方法原名为 `commitLifeCycles`，定义如下：
-```javascript {10,23,57}
+```javascript {10,25,59}
 // packages/react-reconciler/src/ReactFiberCommitWork.old.js
 
 function commitLifeCycles(
@@ -2356,6 +2355,6 @@ function commitAttachRef(finishedWork: Fiber) {
 #### 总结
 从这节我们学到，Layout 阶段会遍历 effectList，依次执行 `commitLayoutEffects` 。该方法的主要工作为：**根据 flags 调用不同的处理函数处理 Fiber 并更新 rsef**。
 ## 流程图解
-👻
+![full-process](~@/assets/react-source-2steps-render/full-process.png)
 ## 整体总结
 👻
