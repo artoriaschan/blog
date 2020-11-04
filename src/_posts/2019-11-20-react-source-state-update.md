@@ -175,6 +175,32 @@ performConcurrentWorkOnRoot.bind(null, root),
 
 ![state-update-path-2](~@/assets/react-source-state-update/state-update-path-2.png)
 ## 心智模型
+在深入源码前，让我们先建立更新机制的心智模型。
+### React 同步更新
+我们可以将 `更新机制` 类比 `代码版本控制` 。
+
+在没有代码版本控制前，我们在代码中逐步叠加功能。一切看起来井然有序，直到我们遇到了一个紧急线上bug（红色节点）。
+
+![git-version-control-1](~@/assets/react-source-state-update/git-version-control-1.png)
+
+为了修复这个bug，我们需要首先将之前的代码提交。
+
+在 React 中，所有通过 `ReactDOM.render` 创建的应用都是通过类似的方式更新状态。
+
+即没有` 优先级` 概念，`高优更新（红色节点）` 需要排在其他更新后面执行。
+### React 并发更新
+当有了 `代码版本控制` ，有 `紧急线上bug` 需要修复时，我们暂存当前分支的修改，在 `master分支` 修复bug并紧急上线。
+![git-version-control-2](~@/assets/react-source-state-update/git-version-control-2.png)
+
+bug修复上线后通过 `git rebase` 命令和开发分支连接上。开发分支基于修复bug的版本继续开发。
+
+![git-version-control-3](~@/assets/react-source-state-update/git-version-control-3.png)
+
+在React中，通过 `ReactDOM.createBlockingRoot` 和 `ReactDOM.createRoot` 创建的应用会采用并发的方式更新状态。
+
+`高优更新（红色节点）` 中断正在进行中的 `低优更新（蓝色节点）` ，先完成 `render-commit` 流程。
+
+待 `高优更新` 完成后，`低优更新` 基于 `高优更新` 的结果重新更新。
 ## Update
 ## 深入理解优先级
 ## ReactDOM.render
