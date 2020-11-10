@@ -78,11 +78,20 @@ module.exports = (options, context, api) => {
             lengthPerPage: 5,
           },
         },
+        // {
+        //   id: 'writing',
+        //   dirname: '_writings',
+        //   path: '/writings/',
+        //   itemPermalink: '/writings/:year/:month/:day/:slug',
+        //   pagination: {
+        //     lengthPerPage: 5,
+        //   },
+        // },
         {
-          id: 'writing',
-          dirname: '_writings',
-          path: '/writings/',
-          itemPermalink: '/writings/:year/:month/:day/:slug',
+          id: 'reship',
+          dirname: '_reship',
+          path: '/reship/',
+          itemPermalink: '/reship/:year/:month/:day/:slug',
           pagination: {
             lengthPerPage: 5,
           },
@@ -113,6 +122,10 @@ module.exports = (options, context, api) => {
         //   link: "/writings/"
         // },
         {
+          text: "转载",
+          link: "/reship/"
+        },
+        {
           text: "摄影",
           link: "/photos/"
         },
@@ -122,7 +135,7 @@ module.exports = (options, context, api) => {
         },
         {
           text: '关于',
-          link: '/me/index',
+          link: '/me/index/',
         },
         {
           text: "Github",
