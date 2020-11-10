@@ -746,4 +746,362 @@ memoizedState: 'ABCD'
 :::
 通过以上例子我们可以发现，`React` 保证最终的状态一定和用户触发的交互一致，但是中间过程状态可能由于设备不同而不同。
 ## ReactDOM.render
+### 创建 fiber
+首次执行 `ReactDOM.render` 会创建 `fiberRootNode` 和 `rootFiber`。其中 `fiberRootNode` 是整个应用的根节点，`rootFiber` 是要渲染组件所在组件树的根节点。
+
+这一步发生在调用 `ReactDOM.render` 后进入的 `legacyRenderSubtreeIntoContainer` 方法中。
+```javascript {17-20}
+// packages/react-dom/src/client/ReactDOMLegacy.js
+
+function legacyRenderSubtreeIntoContainer(
+  parentComponent: ?React$Component<any, any>,
+  children: ReactNodeList,
+  container: Container,
+  forceHydrate: boolean,
+  callback: ?Function,
+) {
+  // ...
+  // TODO: Without `any` type, Flow says "Property cannot be accessed on any
+  // member of intersection type." Whyyyyyy.
+  let root: RootType = (container._reactRootContainer: any);
+  let fiberRoot;
+  if (!root) {
+    // Initial mount
+    root = container._reactRootContainer = legacyCreateRootFromDOMContainer(
+      container,
+      forceHydrate,
+    );
+    fiberRoot = root._internalRoot;
+    if (typeof callback === 'function') {
+      const originalCallback = callback;
+      callback = function() {
+        const instance = getPublicRootInstance(fiberRoot);
+        originalCallback.call(instance);
+      };
+    }
+    // Initial mount should not be batched.
+    unbatchedUpdates(() => {
+      updateContainer(children, fiberRoot, parentComponent, callback);
+    });
+  } else {
+    fiberRoot = root._internalRoot;
+    if (typeof callback === 'function') {
+      const originalCallback = callback;
+      callback = function() {
+        const instance = getPublicRootInstance(fiberRoot);
+        originalCallback.call(instance);
+      };
+    }
+    // Update
+    updateContainer(children, fiberRoot, parentComponent, callback);
+  }
+  return getPublicRootInstance(fiberRoot);
+}
+```
+`legacyCreateRootFromDOMContainer` 方法内部会调用 `createFiberRoot` 方法完成 `fiberRootNode` 和 `rootFiber` 的创建以及关联。并初始化 `updateQueue`。
+::: warning 其实这里的调用链比较长
+```javascript
+legacyCreateRootFromDOMContainer
+            (function)
+                |
+                |
+                v
+          createLegacyRoot
+            (function)
+                |
+                |
+                v
+      ReactDOMBlockingRoot
+            (class)
+                |
+                |
+                v
+          createRootImpl
+            (function)
+                |
+                |
+                v
+          createContainer: createContainer_new/createContainer_old
+            (function)
+                |
+                |
+                v
+          createFiberRoot
+            (function)
+```
+:::
+```javascript {27,32-38}
+// packages/react-dom/src/client/ReactDOMLegacy.js
+
+function legacyCreateRootFromDOMContainer(
+  container: Container,
+  forceHydrate: boolean,
+): RootType {
+  // ...
+  return createLegacyRoot(
+    container,
+    shouldHydrate
+      ? {
+          hydrate: true,
+        }
+      : undefined,
+  );
+}
+
+// packages/react-reconciler/src/ReactFiberRoot.old.js
+
+export function createFiberRoot(
+  containerInfo: any,
+  tag: RootTag,
+  hydrate: boolean,
+  hydrationCallbacks: null | SuspenseHydrationCallbacks,
+): FiberRoot {
+  // 创建 fiberRootNode
+  const root: FiberRoot = (new FiberRootNode(containerInfo, tag, hydrate): any);
+  if (enableSuspenseCallback) {
+    root.hydrationCallbacks = hydrationCallbacks;
+  }
+
+  // 创建 rootFiber
+  const uninitializedFiber = createHostRootFiber(tag);
+  // 连接rootFiber与fiberRootNode
+  root.current = uninitializedFiber;
+  uninitializedFiber.stateNode = root;
+  // 初始化updateQueue
+  initializeUpdateQueue(uninitializedFiber);
+
+  return root;
+}
+```
+### 创建 Update
+我们已经做好了组件的初始化工作，接下来就等待创建Update来开启一次更新。
+
+这一步发生在 `updateContainer` 函数中。
+```javascript
+export function updateContainer(
+  element: ReactNodeList,
+  container: OpaqueRoot,
+  parentComponent: ?React$Component<any, any>,
+  callback: ?Function,
+): Lane {
+  // ...
+  // 创建 update
+  const update = createUpdate(eventTime, lane);
+  // update.payload 为需要挂载在根节点的组件
+  update.payload = {element};
+  // callback为ReactDOM.render的第三个参数 —— 回调函数
+  callback = callback === undefined ? null : callback;
+  if (callback !== null) {
+    // ...
+    update.callback = callback;
+  }
+  // 将生成的update加入updateQueue
+  enqueueUpdate(current, update);
+  // 调度更新
+  scheduleUpdateOnFiber(current, lane, eventTime);
+  // 返回 优先级
+  return lane;
+}
+```
+值得注意的是其中 `update.payload = {element}` 。对于 `HostRoot` ，`payload` 为 `ReactDOM.render` 的第一个传参。
+### 完整流程
+![render-process](~@/assets/react-source-state-update/render-process.png)
 ## this.setState
+### 执行流程
+通过对 `Demo` 的 `debug` ，我们可以看到，`this.setState` 内会调用 `this.updater.enqueueSetState` 方法。
+```javascript {11}
+// packages/react/src/ReactBaseClasses.js
+
+Component.prototype.setState = function(partialState, callback) {
+  invariant(
+    typeof partialState === 'object' ||
+      typeof partialState === 'function' ||
+      partialState == null,
+    'setState(...): takes an object of state variables to update or a ' +
+      'function which returns an object of state variables.',
+  );
+  this.updater.enqueueSetState(this, partialState, callback, 'setState');
+};
+```
+在 `enqueueSetState` 方法中就是我们熟悉的从 `创建update` 到 `调度update` 的流程了。
+```javascript {9-10,15-16}
+// packages/react-reconciler/src/ReactFiberClassComponent.old.js
+
+const classComponentUpdater = {
+  isMounted,
+  enqueueSetState(inst, payload, callback) {
+    const fiber = getInstance(inst);
+    const eventTime = requestEventTime();
+    const lane = requestUpdateLane(fiber);
+    const update = createUpdate(eventTime, lane);
+    update.payload = payload;
+    if (callback !== undefined && callback !== null) {
+      // ...
+      update.callback = callback;
+    }
+    enqueueUpdate(fiber, update);
+    scheduleUpdateOnFiber(fiber, lane, eventTime);
+    // ...
+    if (enableSchedulingProfiler) {
+      markStateUpdateScheduled(fiber, lane);
+    }
+  },
+  enqueueReplaceState(inst, payload, callback) {
+    // ...
+  },
+  enqueueForceUpdate(inst, callback) {
+    // ...
+  },
+};
+```
+这里值得注意的是对于 `ClassComponent` ，`update.payload` 为 `this.setState` 的第一个传参（即要改变的 `state`）。
+### this.forceUpdate
+在this.updater上，除了enqueueSetState外，还存在enqueueForceUpdate，当我们调用this.forceUpdate时会调用他。
+
+可以看到，除了赋值update.tag = ForceUpdate;以及没有payload外，其他逻辑与this.setState一致。
+```javascript {16-18,24-25}
+// packages/react-reconciler/src/ReactFiberClassComponent.old.js
+
+const classComponentUpdater = {
+  isMounted,
+  enqueueSetState(inst, payload, callback) {
+    // ...
+  },
+  enqueueReplaceState(inst, payload, callback) {
+    // ...
+  },
+  enqueueForceUpdate(inst, callback) {
+    const fiber = getInstance(inst);
+    const eventTime = requestEventTime();
+    const lane = requestUpdateLane(fiber);
+
+    const update = createUpdate(eventTime, lane);
+    // 赋值tag为ForceUpdate
+    update.tag = ForceUpdate;
+
+    if (callback !== undefined && callback !== null) {
+      // ...
+      update.callback = callback;
+    }
+    enqueueUpdate(fiber, update);
+    scheduleUpdateOnFiber(fiber, lane, eventTime);
+    // ...
+    if (enableSchedulingProfiler) {
+      markForceUpdateScheduled(fiber, lane);
+    }
+  },
+};
+```
+那么赋值 `update.tag = ForceUpdate;` 有何作用呢？
+
+在判断 `ClassComponent` 是否需要更新时有两个条件需要满足：
+```javascript
+// packages/react-reconciler/src/ReactFiberClassComponent.old.js
+
+const shouldUpdate =
+  checkHasForceUpdateAfterProcessing() ||
+  checkShouldComponentUpdate(
+    workInProgress,
+    ctor,
+    oldProps,
+    newProps,
+    oldState,
+    newState,
+    nextContext,
+  );
+```
+* `checkHasForceUpdateAfterProcessing` ：内部会判断本次更新的 `Update` 是否为 `ForceUpdate` 。即如果本次更新的 `Update` 中存在 `tag` 为 `ForceUpdate` ，则返回 `true`。
+* `checkShouldComponentUpdate` ：内部会调用 `shouldComponentUpdate` 方法。以及当该 `ClassComponent` 为 `PureComponent` 时会`浅比较` `state`与 `props`。
+
+首先 `checkHasForceUpdateAfterProcessing` 的判断逻辑如下：
+```javascript {3-4,21-25,29-32}
+// packages/react-reconciler/src/ReactUpdateQueue.old.js
+
+// 声明全局变量 hasForceUpdate
+let hasForceUpdate = false;
+// ...
+function getStateFromUpdate<State>(
+  workInProgress: Fiber,
+  queue: UpdateQueue<State>,
+  update: Update<State>,
+  prevState: State,
+  nextProps: any,
+  instance: any,
+): any {
+  switch (update.tag) {
+    case ReplaceState: 
+      // ...
+    case CaptureUpdate: 
+      // ...
+    case UpdateState: 
+      // ...
+    case ForceUpdate: {
+      // 如 update.tag 为 ForceUpdate，则将 hasForceUpdate 置为 true
+      hasForceUpdate = true;
+      return prevState;
+    }
+  }
+  return prevState;
+}
+// 返回全局变量 hasForceUpdate 的值
+export function checkHasForceUpdateAfterProcessing(): boolean {
+  return hasForceUpdate;
+}
+```
+::: warning
+`getStateFromUpdate` 函数会在 `processUpdateQueue` 函数中调用，由上文我们可以知道，`processUpdateQueue` 函数是处理 `更新Update`，而 `getStateFromUpdate` 则是获取 `newState`。
+
+他们之间的调用关系则是：
+```
+beginWork                       nextUnitOfWork
+    |                                 ^
+    v                                 |
+updateClassComponent                  |
+    |                                 |
+    v                                 |
+updateClassInstance ->   finishClassComponent
+    |                         ^
+    v                         |
+processUpdateQueue -> shouldUpdate 
+                          ^
+                          |
+checkHasForceUpdateAfterProcessing || checkShouldComponentUpdate
+```
+由以上的调用关系看到，`processUpdateQueue` 函数执行完之后，若有 `Update.tag` 为 `ForceUpdate` ，则 `hasForceUpdate` 变量必然为 `true` ，进而 `checkHasForceUpdateAfterProcessing` 函数的返回值必然为 `true`。
+:::
+
+而 checkShouldComponentUpdate 的定义如下：
+```javascript {14-18,22-27}
+function checkShouldComponentUpdate(
+  workInProgress,
+  ctor,
+  oldProps,
+  newProps,
+  oldState,
+  newState,
+  nextContext,
+) {
+  const instance = workInProgress.stateNode;
+  // 判断组件实例中是否声明 shouldComponentUpdate 钩子，若声明则直接使用钩子进行判断
+  if (typeof instance.shouldComponentUpdate === 'function') {
+    // ...
+    const shouldUpdate = instance.shouldComponentUpdate(
+      newProps,
+      newState,
+      nextContext,
+    );
+    // ...
+    return shouldUpdate;
+  }
+  // 若组件为 PureComponent，则浅比较 state 和 props，判断是否更新
+  if (ctor.prototype && ctor.prototype.isPureReactComponent) {
+    return (
+      !shallowEqual(oldProps, newProps) || !shallowEqual(oldState, newState)
+    );
+  }
+  // 若都不满足上述判断，则默认更新
+  return true;
+}
+```
+有上述总结，当某次更新含有 `Update.tag` 为 `ForceUpdate` 的 `Update` ，那么当前 `ClassComponent` 不会受其他性能优化手段（`shouldComponentUpdate|PureComponent`）影响，一定会更新。
+> 因为 `checkHasForceUpdateAfterProcessing` 函数返回值必然为 `true` ，导致判断条件短路不执行 `checkShouldComponentUpdate` 函数
