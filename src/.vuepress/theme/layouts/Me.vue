@@ -1,6 +1,8 @@
 <template>
   <div class="about">
-    <img class="about-avator" src="~@assets/avator.jpeg"/>
+    <div class="about-avator">
+      <img class="about-avator-img" src="~@assets/avator.jpeg"/>
+    </div>
     <div class="about-content">
       <Content />
     </div>
@@ -10,8 +12,20 @@
 .about {
   display: flex;
   &-avator {
-    width: 200px;
-    height: 200px;
+    width: 30%;
+    &-img {
+      width: 100%;
+    }
+    &-img::before {
+      content: '';
+      padding-top: 100%;
+      float: left;
+    }
+    &-img::after {
+      content: '';
+      display: block;
+      clear: both;
+    }
   }
   &-content {
     flex: 1;
