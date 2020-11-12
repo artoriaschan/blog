@@ -918,7 +918,7 @@ cleanupDeps () {
 
 因此 Vue 设计了在每次添加完新的订阅，会移除掉旧的订阅，这样就保证了在我们刚才的场景中，如果渲染 b 模板的时候去修改 a 模板的数据，a 数据订阅回调已经被移除了，所以不会有任何浪费，真的是非常赞叹 Vue 对一些细节上的处理。
 ### 总结
-![deps-collection](~@/assets/vue-source-reactive-system/deps-collection.png)
+![deps-collection](~@/assets/posts/vue-source-reactive-system/deps-collection.png)
 
 通过这一节的分析，我们对 Vue 数据的依赖收集过程已经有了认识，并且对这其中的一些细节做了分析。收集依赖的目的是为了当这些响应式数据发生变化，触发它们的 setter 的时候，能知道应该通知哪些订阅者去做相应的逻辑处理，我们把这个过程叫派发更新，其实 Watcher 和 Dep 就是一个非常经典的观察者设计模式的实现，下一节我们来详细分析一下派发更新的过程。
 
@@ -1266,7 +1266,7 @@ updateComponent = () => {
 ```
 所以这就是当我们去修改组件相关的响应式数据的时候，会触发组件重新渲染的原因，接着就会重新执行 patch 的过程，但它和首次渲染有所不同。
 ### 总结
-![deps-update](~@/assets/vue-source-reactive-system/deps-update.png)
+![deps-update](~@/assets/posts/vue-source-reactive-system/deps-update.png)
 
 通过这一节的分析，我们对 Vue 数据修改派发更新的过程也有了认识，实际上就是当数据发生变化的时候，触发 setter 逻辑，把在依赖过程中订阅的的所有观察者，也就是 watcher，都触发它们的 update 过程，这个过程又利用了队列做了进一步优化，在 nextTick 后执行所有 watcher 的 run，最后执行它们的回调函数。nextTick 是 Vue 一个比较核心的实现了，下一节我们来重点分析它的实现。
 
@@ -1279,7 +1279,7 @@ JS 执行是单线程的，它是基于事件循环的。事件循环大致分�
 * 主线程之外，还存在一个"任务队列"（task queue）。只要异步任务有了运行结果，就在"任务队列"之中放置一个事件。
 * 一旦"执行栈"中的所有同步任务执行完毕，系统就会读取"任务队列"，看看里面有哪些事件。那些对应的异步任务，于是结束等待状态，进入执行栈，开始执行。
 * 主线程不断重复上面的第三步。
-![event-loop](~@/assets/vue-source-reactive-system/event-loop.png)
+![event-loop](~@/assets/posts/vue-source-reactive-system/event-loop.png)
 
 主线程的执行过程就是一个 tick，而所有的异步结果都是通过 “任务队列” 来调度。 消息队列中存放的是一个个的任务（task）。
 

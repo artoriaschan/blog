@@ -1446,7 +1446,7 @@ vm.$options = {
 
 同时在这个过程中也会运行一些叫做生命周期钩子的函数，给予用户机会在一些特定的场景下添加他们自己的代码。
 
-![lifecycle](~@/assets/vue-source-component/lifecycle.png)
+![lifecycle](~@/assets/posts/vue-source-component/lifecycle.png)
 
 源码中最终执行生命周期的函数都是调用 callHook 方法，它的定义在 src/core/instance/lifecycle 中：
 ```javascript

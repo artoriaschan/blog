@@ -1383,17 +1383,17 @@ updateChildren 的逻辑比较复杂，直接读源码比较晦涩，我们可�
 ```
 当我们点击 change 按钮去改变数据，最终会执行到 updateChildren 去更新 li 部分的列表数据，我们通过图的方式来描述一下它的更新过程：
 * 第一步：
-![update-children-1](~@/assets/vue-source-reactive-system/update-children-1.jpg)
+![update-children-1](~@/assets/posts/vue-source-reactive-system/update-children-1.jpg)
 * 第二步：
-![update-children-2](~@/assets/vue-source-reactive-system/update-children-2.jpg)
+![update-children-2](~@/assets/posts/vue-source-reactive-system/update-children-2.jpg)
 * 第三步：
-![update-children-3](~@/assets/vue-source-reactive-system/update-children-3.jpg)
+![update-children-3](~@/assets/posts/vue-source-reactive-system/update-children-3.jpg)
 * 第四步：
-![update-children-4](~@/assets/vue-source-reactive-system/update-children-4.jpg)
+![update-children-4](~@/assets/posts/vue-source-reactive-system/update-children-4.jpg)
 * 第五步：
-![update-children-5](~@/assets/vue-source-reactive-system/update-children-5.jpg)
+![update-children-5](~@/assets/posts/vue-source-reactive-system/update-children-5.jpg)
 * 第六步：
-![update-children-6](~@/assets/vue-source-reactive-system/update-children-6.jpg)
+![update-children-6](~@/assets/posts/vue-source-reactive-system/update-children-6.jpg)
 ### 总结
 组件更新的过程核心就是新旧 vnode diff，对新旧节点相同以及不同的情况分别做不同的处理：
 * 新旧节点不同的更新流程是创建新节点->更新父占位符节点->删除旧节点；

@@ -17,7 +17,7 @@ location: Beijing
 
 我们已经知道，`Render阶段` 完成后会进入 `Commit阶段`。让我们继续补全从触发状态更新到 `Render阶段`的路径。
 
-![state-update-path-1](~@/assets/react-source-state-update/state-update-path-1.png)
+![state-update-path-1](~@/assets/posts/react-source-state-update/state-update-path-1.png)
 ### 创建 Update 对象
 在 React 中，有如下方法可以触发状态更新（排除 SSR 相关）：
 * `ReactDOM.render`
@@ -173,7 +173,7 @@ performConcurrentWorkOnRoot.bind(null, root),
 ### 总结
 让我们梳理下 `状态更新` 的整个调用路径的关键节点：
 
-![state-update-path-2](~@/assets/react-source-state-update/state-update-path-2.png)
+![state-update-path-2](~@/assets/posts/react-source-state-update/state-update-path-2.png)
 ## 心智模型
 在深入源码前，让我们先建立更新机制的心智模型。
 ### React 同步更新
@@ -181,7 +181,7 @@ performConcurrentWorkOnRoot.bind(null, root),
 
 在没有代码版本控制前，我们在代码中逐步叠加功能。一切看起来井然有序，直到我们遇到了一个紧急线上bug（红色节点）。
 
-![git-version-control-1](~@/assets/react-source-state-update/git-version-control-1.png)
+![git-version-control-1](~@/assets/posts/react-source-state-update/git-version-control-1.png)
 
 为了修复这个bug，我们需要首先将之前的代码提交。
 
@@ -190,11 +190,11 @@ performConcurrentWorkOnRoot.bind(null, root),
 即没有` 优先级` 概念，`高优更新（红色节点）` 需要排在其他更新后面执行。
 ### React 并发更新
 当有了 `代码版本控制` ，有 `紧急线上bug` 需要修复时，我们暂存当前分支的修改，在 `master分支` 修复bug并紧急上线。
-![git-version-control-2](~@/assets/react-source-state-update/git-version-control-2.png)
+![git-version-control-2](~@/assets/posts/react-source-state-update/git-version-control-2.png)
 
 bug修复上线后通过 `git rebase` 命令和开发分支连接上。开发分支基于修复bug的版本继续开发。
 
-![git-version-control-3](~@/assets/react-source-state-update/git-version-control-3.png)
+![git-version-control-3](~@/assets/posts/react-source-state-update/git-version-control-3.png)
 
 在React中，通过 `ReactDOM.createBlockingRoot` 和 `ReactDOM.createRoot` 创建的应用会采用并发的方式更新状态。
 
@@ -508,8 +508,8 @@ export const IdlePriority = 5;
 接下来我们通过一个例子结合上一节介绍的 `Update` 相关字段讲解 `优先级` 如何决定更新的顺序。
 > 该例子来自React Core Team Andrew向网友讲解Update工作流程的 [推文](https://twitter.com/acdlite/status/978412930973687808) 
 
-![update-process-1](~@/assets/react-source-state-update/update-process-1.jpeg)
-![update-process-2](~@/assets/react-source-state-update/update-process-2.jpeg)
+![update-process-1](~@/assets/posts/react-source-state-update/update-process-1.jpeg)
+![update-process-2](~@/assets/posts/react-source-state-update/update-process-2.jpeg)
 
 在这个例子中，有两个 `Update` 。我们将“关闭黑夜模式”产生的 `Update` 称为 `u1` ，输入字母“I”产生的 `Update` 称为 `u2`。
 
@@ -905,7 +905,7 @@ export function updateContainer(
 ```
 值得注意的是其中 `update.payload = {element}` 。对于 `HostRoot` ，`payload` 为 `ReactDOM.render` 的第一个传参。
 ### 完整流程
-![render-process](~@/assets/react-source-state-update/render-process.png)
+![render-process](~@/assets/posts/react-source-state-update/render-process.png)
 ## this.setState
 ### 执行流程
 通过对 `Demo` 的 `debug` ，我们可以看到，`this.setState` 内会调用 `this.updater.enqueueSetState` 方法。

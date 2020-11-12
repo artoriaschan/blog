@@ -1241,6 +1241,6 @@ export function appendChild (node: WeexElement, child: WeexElement) {
 
 ## 总结
 至此我们从主线上把模板和数据如何渲染成最终的 DOM 的过程分析完毕了。大致流程图如下：
-![first-render-flow](~@assets/vue-source-data-driven/first-render-flow.png)
+![first-render-flow](~@assets/posts/vue-source-data-driven/first-render-flow.png)
 
 我们这里只是分析了最简单和最基础的场景，在实际项目中，我们是把页面拆成很多组件的，Vue 另一个核心思想就是组件化。那么下一章我们就来分析 Vue 的组件化过程。

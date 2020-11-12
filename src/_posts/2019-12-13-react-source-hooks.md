@@ -10,7 +10,7 @@ location: Beijing
 ## 极简 Hooks 实现
 首先我们先通过遵循 `React` 的运行流程，实现一个简单的 `useState Hooks`，从而让我们更加深刻具体的了解 `Hooks` 的相应的原理。
 ### useState 流程
-![usestate-process](~@assets/react-source-hooks/usestate-process.png)
+![usestate-process](~@assets/posts/react-source-hooks/usestate-process.png)
 ### 工作原理
 对于useState Hook，考虑如下例子：
 ```jsx

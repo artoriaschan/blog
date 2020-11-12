@@ -12,7 +12,7 @@ location: Beijing
 
 由于渲染机制过于复杂，所以渲染模块在执行过程中会被划分为很多子阶段，输入的 HTML 经过这些子阶段，最后输出像素。我们把这样的一个处理流程叫做**渲染流水线**，其大致流程如下图所示：
 
-![rendering-pipeline](~@assets/browser-pipeline/rendering-pipeline.png)
+![rendering-pipeline](~@assets/posts/browser-pipeline/rendering-pipeline.png)
 
 按照渲染的时间顺序，流水线可分为如下几个子阶段：**构建 DOM 树**、**样式计算**、**布局阶段**、**分层**、**绘制**、**分块**、**光栅化**和**合成**。
 
@@ -83,7 +83,7 @@ Chrome 在布局阶段需要完成两个任务：创建布局树和布局计算�
 
 **浏览器的页面实际上被分成了很多图层，这些图层叠加后合成了最终的页面**。下面我们再来看看这些图层和布局树节点之间的关系，如文中图所示：
 
-![layout-layer](~@assets/browser-pipeline/layout-layer.png)
+![layout-layer](~@assets/posts/browser-pipeline/layout-layer.png)
 
 通常情况下，**并不是布局树的每个节点都包含一个图层，如果一个节点没有对应的层，那么这个节点就从属于父节点的图层**。
 
@@ -97,25 +97,25 @@ Chrome 在布局阶段需要完成两个任务：创建布局树和布局计算�
 
 渲染引擎实现图层的绘制会分步操作，会把一个图层的绘制拆分成很多小的**绘制指令**，然后再把这些指令按照顺序组成一个待绘制列表，如下图所示：
 
-![paint](~@assets/browser-pipeline/paint.png)
+![paint](~@assets/posts/browser-pipeline/paint.png)
 
 ## 栅格化（raster）操作
 
 绘制列表只是用来记录绘制顺序和绘制指令的列表，而实际上绘制操作是由渲染引擎中的合成线程来完成的。你可以结合下图来看下渲染主线程和合成线程之间的关系：
 
-![synthetic-thread](~@assets/browser-pipeline/synthetic-thread.png)
+![synthetic-thread](~@assets/posts/browser-pipeline/synthetic-thread.png)
 
 **合成线程会将图层划分为图块（tile）**:
 
-![tile](~@assets/browser-pipeline/tile.png)
+![tile](~@assets/posts/browser-pipeline/tile.png)
 
 然后**合成线程会按照视口附近的图块来优先生成位图，实际生成位图的操作是由栅格化来执行的。所谓栅格化，是指将图块转换为位图**。而图块是栅格化执行的最小单位。渲染进程维护了一个栅格化的线程池，所有的图块栅格化都是在线程池内执行的，运行方式如下图所示：
 
-![raster](~@assets/browser-pipeline/raster.png)
+![raster](~@assets/posts/browser-pipeline/raster.png)
 
 通常，**栅格化过程都会使用 GPU 来加速生成，使用 GPU 生成位图的过程叫快速栅格化**，或者 GPU 栅格化，生成的位图被保存在 GPU 内存中。
 
-![gpu-raster](~@assets/browser-pipeline/gpu-raster.png)
+![gpu-raster](~@assets/posts/browser-pipeline/gpu-raster.png)
 
 ## 合成和显示
 
@@ -129,18 +129,18 @@ Chrome 在布局阶段需要完成两个任务：创建布局树和布局计算�
 
 如果你通过 JavaScript 或者 CSS 修改元素的几何位置属性，例如改变元素的宽度、高度等，那么浏览器会触发重新布局，解析之后的一系列子阶段，这个过程就叫**重排**。无疑，**重排需要更新完整的渲染流水线，所以开销也是最大的**。
 
-![reflow](~@assets/browser-pipeline/reflow.png)
+![reflow](~@assets/posts/browser-pipeline/reflow.png)
 
 ### 重绘-更新元素的绘制属性
 
 如果修改了元素的背景颜色，那么布局阶段将不会被执行，因为并没有引起几何位置的变换，所以就直接进入了绘制阶段，然后执行之后的一系列子阶段，这个过程就叫**重绘**。相较于重排操作，**重绘省去了布局和分层阶段，所以执行效率会比重排操作要高一些**。
 
-![repaint](~@assets/browser-pipeline/repaint.png)
+![repaint](~@assets/posts/browser-pipeline/repaint.png)
 
 ### 直接合成阶段
 
 那如果你更改一个既不要布局也不要绘制的属性，会发生什么变化呢？渲染引擎将跳过布局和绘制，只执行后续的合成操作，我们把这个过程叫做**合成**。具体流程参考下图：
 
-![draw](~@assets/browser-pipeline/draw.png)
+![draw](~@assets/posts/browser-pipeline/draw.png)
 
 在上图中，我们使用了 CSS 的 transform 来实现动画效果，这可以避开重排和重绘阶段，直接在非主线程上执行合成动画操作。这样的效率是最高的，因为是在非主线程上合成，并没有占用主线程的资源，另外也避开了布局和绘制两个子阶段，所以**相对于重绘和重排，合成能大大提升绘制效率**。

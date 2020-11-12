@@ -44,7 +44,7 @@ Renderer（渲染器）—— 负责将变化的组件渲染到页面上
 
 在每16.6ms时间内，需要完成如下工作：
 
-![frame](~@/assets/react-source-architecture-and-concept/frame.png)
+![frame](~@/assets/posts/react-source-architecture-and-concept/frame.png)
 
 当JS执行时间过长，超出了16.6ms，这次刷新就没有时间执行样式布局和样式绘制了。
 
@@ -80,7 +80,7 @@ export default class App extends React.Component {
 ```
 我用红色标注了更新的步骤。
 
-![v15-example-1](~@/assets/react-source-architecture-and-concept/v15-example-1.png)
+![v15-example-1](~@/assets/posts/react-source-architecture-and-concept/v15-example-1.png)
 
 我们可以看到，Reconciler和Renderer是交替工作的，当第一个li在页面上已经变化后，第二个li再进入Reconciler。
 
@@ -88,7 +88,7 @@ export default class App extends React.Component {
 
 让我们看看在React15架构中如果中途中断更新会怎么样？
 
-![v15-example-2](~@/assets/react-source-architecture-and-concept/v15-example-2.png)
+![v15-example-2](~@/assets/posts/react-source-architecture-and-concept/v15-example-2.png)
 
 当第一个li完成更新时中断更新，即步骤3完成后中断更新，此时后面的步骤都还未执行。
 
@@ -149,7 +149,7 @@ Renderer 根据 Reconciler 为虚拟DOM打的标记，同步执行对应的DOM�
 
 所以，对于我们在上一节使用过的 demo, 在 React 16 架构中整个更新流程为：
 
-![v16-example](~@/assets/react-source-architecture-and-concept/v16-example.png)
+![v16-example](~@/assets/posts/react-source-architecture-and-concept/v16-example.png)
 
 其中红框中的步骤随时可能由于以下原因被中断：
 * 有其他更高优任务需要先更新
@@ -417,7 +417,7 @@ ReactDOM.render(<App/>, document.getElementById('root'));
 之所以要区分 fiberRootNode 与 rootFiber，是因为在应用中我们可以多次调用 ReactDOM.render 渲染不同的组件树，他们会拥有不同的 rootFiber。但是整个应用的根节点只有一个，那就是fiberRootNode。
 
 fiberRootNode的current会指向当前页面上已渲染内容对应对Fiber树，被称为current Fiber树。
-![mount-fiber-tree-1](~@/assets/react-source-architecture-and-concept/mount-fiber-tree-1.png)
+![mount-fiber-tree-1](~@/assets/posts/react-source-architecture-and-concept/mount-fiber-tree-1.png)
 ```javascript
 // packages/react-reconciler/src/ReactFiberRoot.new.js -> createFiberRoot function
 
@@ -429,20 +429,20 @@ root.current = uninitializedFiber;
 由于是首屏渲染，页面中还没有挂载任何DOM，所以fiberRootNode.current指向的rootFiber没有任何子Fiber节点（即current Fiber树为空）。
 
 2. 接下来进入 render 阶段，根据组件返回的 JSX 在内存中依次创建 Fiber 节点并连接在一起构建 Fiber 树，被称为 workInProgress Fiber 树。（下图中右侧为内存中构建的树，左侧为页面显示的树）
-![mount-fiber-tree-2](~@/assets/react-source-architecture-and-concept/mount-fiber-tree-2.png)
+![mount-fiber-tree-2](~@/assets/posts/react-source-architecture-and-concept/mount-fiber-tree-2.png)
 3. 图中右侧已构建完的 workInProgress Fiber 树在commit阶段渲染到页面。
 
 此时DOM更新为右侧树对应的样子。fiberRootNode 的 current 指针指向 workInProgress Fiber 树使其变为 current Fiber 树。
-![mount-fiber-tree-3](~@/assets/react-source-architecture-and-concept/mount-fiber-tree-3.png)
+![mount-fiber-tree-3](~@/assets/posts/react-source-architecture-and-concept/mount-fiber-tree-3.png)
 #### update时替换Fiber tree
 1. 接下来我们点击 p 节点触发状态改变，这会开启一次新的render阶段并构建一棵新的 workInProgress Fiber 树。
-![update-fiber-tree-1](~@/assets/react-source-architecture-and-concept/update-fiber-tree-1.png)
+![update-fiber-tree-1](~@/assets/posts/react-source-architecture-and-concept/update-fiber-tree-1.png)
 和 mount 时一样，workInProgress fiber 的创建可以复用 current Fiber 树对应的节点数据。
 
 > 这个决定是否复用的过程就是Diff算法
 
 2. workInProgress Fiber 树在 render 阶段完成构建后进入commit阶段渲染到页面上。渲染完毕后，workInProgress Fiber 树变为 current Fiber 树。
-![update-fiber-tree-2](~@/assets/react-source-architecture-and-concept/update-fiber-tree-2.png)
+![update-fiber-tree-2](~@/assets/posts/react-source-architecture-and-concept/update-fiber-tree-2.png)
 ## 文件结构
 根据前文的介绍，我们已经知道 React 16 的架构分为三层：
 * Scheduler（调度器）—— 调度任务的优先级，高优任务优先进入Reconciler

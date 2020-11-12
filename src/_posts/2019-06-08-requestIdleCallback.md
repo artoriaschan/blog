@@ -1,6 +1,6 @@
 ---
 title: requestIdleCallback-后台任务调度
-date: 2019-05-03
+date: 2019-06-08
 tags:
   - javascript
 author: ArtoriasChan
@@ -25,7 +25,7 @@ location: Beijing
 
 所以解决卡顿问题的关键就是避免UI渲染线程长时间地挂起，这就要求我们控制JS的合理的执行时间。那么 JS 执行时间多久会是合理的呢？这里就需要提到帧率了，大多数设备的帧率为 60 次/秒，也就是每帧消耗 16.67 ms 能让用户感觉到相当流畅。浏览器的一帧的生命周期中包含如下图过程：
 
-![life-of-a-frame](~@assets/requestIdleCallback/life-of-a-frame.jpg)
+![life-of-a-frame](~@assets/posts/requestIdleCallback/life-of-a-frame.jpg)
 
 在一帧中，我们需要将 JS 执行时间控制在合理的范围内，不影响后续 Layout 与 Paint 的过程。而经常被大家所提及的 requestIdleCallback 就能够充分利用帧与帧之间的空闲时间来执行 JS，可以根据 callback 传入的 dealine 判断当前是否还有空闲时间（timeRemaining）用于执行。由于浏览器可能始终处于繁忙的状态，导致 callback 一直无法执行，它还能够设置超时时间（timeout），一旦超过时间（didTimeout）能使任务被强制执行。
 
@@ -46,7 +46,7 @@ function myWork(deadline) {
 }
 ```
 
-![idle-period](~@assets/requestIdleCallback/idle-period.png)
+![idle-period](~@assets/posts/requestIdleCallback/idle-period.png)
 
 结合上图，我们可以得知 requestIdleCallback 是在 Layout 与 Paint 之后执行的，这也就意味着 requestIdleCallback 里适合做 JS 计算，如果再进行 DOM 的变更，会重新触发 Layout 与 Paint，帧的时间也会因此不可控，`requestIdleCallback` 的兼容性也比较差。在 React 内部采用 `requestAnimationFrame` 作为 [ployfill](https://github.com/facebook/react/blob/v16.8.0/packages/scheduler/src/Scheduler.js#L455)，通过 [帧率动态调整](https://github.com/facebook/react/blob/v16.8.0/packages/scheduler/src/Scheduler.js#L649)，计算 timeRemaining，模拟 `requestIdleCallback`，从而实现时间分片（Time Slicing），一个时间片就是一个渲染帧内 JS 能获得的最大执行时间。`requestAnimationFrame` 触发在 Layout 与 Paint 之前，方便做 DOM 变更。
 
@@ -90,7 +90,7 @@ deadline就是这样一个基于`requestIdleCallback`的IdleDeadline的实例，
 
 如何理解这个呢，先来看之前的一张图，该图是取自W3C官方文档中的：
 
-![idle-period](~@assets/requestIdleCallback/idle-period.png)
+![idle-period](~@assets/posts/requestIdleCallback/idle-period.png)
 
 该图中的`frame#1`，`frame#2`就是两个帧，每个帧的持续时间是`(100/60 = 16.66ms)`，而在每一帧内部，TASK和redering只花费了一部分时间，并没有占据整个帧，那么这个时候，如图中`idle period`的部分就是空闲时间，而每一帧中的空闲时间，根据该帧中处理事情的多少，复杂度等，消耗不等，所以空闲时间也不等。
 
@@ -215,7 +215,7 @@ requestIdleCallback(function cb1(deadline){
 
 为什么会这样呢，因为这个是W3C中的一个标准…来看下W3C中，该情况的一个描述图：
 
-![min-timeRemaining](~@assets/requestIdleCallback/min-timeRemaining.png)
+![min-timeRemaining](~@assets/posts/requestIdleCallback/min-timeRemaining.png)
 
 它在说明，如果没rAF这样的循环处理，浏览器一直处于空闲状态的话，deadline.timeRemaining可以得到的最长时间，也是50ms。
 

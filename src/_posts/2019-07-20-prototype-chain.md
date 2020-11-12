@@ -21,7 +21,7 @@ location: Beijing
 
 每个对象拥有一个**原型对象**，对象以其原型为模板，从原型继承方法和属性，这些属性和方法定义在对象的构造器函数的 `prototype` 属性上，而非对象实例本身。
 
-![2019-07-24-60302](~@assets/prototype-chain/2019-07-24-60302.jpg)
+![2019-07-24-60302](~@assets/posts/prototype-chain/2019-07-24-60302.jpg)
 
 
 
@@ -43,7 +43,7 @@ p.__proto__ === Parent.prototype	// true
 
 所以构造函数 `Parent`、`Parent.prototype` 和 `p` 的关系如下图。
 
-![2019-07-24-060305](~@assets/prototype-chain/2019-07-24-060305.jpg)
+![2019-07-24-060305](~@assets/posts/prototype-chain/2019-07-24-060305.jpg)
 
 `__proto__` 属性在 `ES6` 时才被标准化，以确保 Web 浏览器的兼容性，但是不推荐使用，除了标准化的原因之外还有性能问题。为了更好的支持，推荐使用 `Object.getPrototypeOf()`。
 
@@ -75,13 +75,13 @@ p.__proto__.__proto__.__proto__ === null; // true
 
 下图展示了原型链的运作机制:
 
-![2019-07-24-060308](~@assets/prototype-chain/2019-07-24-060308.jpg)
+![2019-07-24-060308](~@assets/posts/prototype-chain/2019-07-24-060308.jpg)
 
 原型上的方法和属性被 **继承** 到新对象中，并不是被复制到新对象。
 
 当访问一个对象的属性 / 方法时，它不仅仅在该对象上查找，还会查找该对象的原型，以及该对象的原型的原型，一层一层向上查找，直到找到一个名字匹配的属性 / 方法或到达原型链的末尾（`null`）。
 
-![2019-07-24-060314](~@assets/prototype-chain/2019-07-24-060314.jpg)
+![2019-07-24-060314](~@assets/posts/prototype-chain/2019-07-24-060314.jpg)
 
 ## instanceof 原理及实现
 
@@ -141,7 +141,7 @@ Object.prototype 就是原型链的顶端（不考虑 null 的情况下），所
 
 Function.prototype 对象是一个函数（对象），其 `[[Prototype]]` 内部属性值指向内建对象 Object.prototype。Function.prototype 对象自身没有 `valueOf` 属性，其从 Object.prototype 对象继承了`valueOf` 属性。
 
-![20191215220335](~@assets/prototype-chain/20191215220335.png)
+![20191215220335](~@assets/posts/prototype-chain/20191215220335.png)
 
 Function.prototype 的 `[[Class]]` 属性是 `Function`，所以这是一个函数，但又不大一样。为什么这么说呢？因为我们知道只有函数才有 prototype 属性，但并不是所有函数都有这个属性，因为 Function.prototype 这个函数就没有。
 
@@ -165,7 +165,7 @@ Object 作为构造函数时，其 `[[Prototype]]` 内部属性值指向 Functio
 Object.__proto__ === Function.prototype // true
 ```
 
-![20191215220404](~@assets/prototype-chain/20191215220404.png)
+![20191215220404](~@assets/posts/prototype-chain/20191215220404.png)
 
 ## function Function
 
@@ -179,7 +179,7 @@ Function 构造函数是一个函数对象，其 `[[Class]]` 属性是 `Function
 Function.__proto__ === Function.prototype // true
 ```
 
-![20191215220504](~@assets/prototype-chain/20191215220504.png)
+![20191215220504](~@assets/posts/prototype-chain/20191215220504.png)
 
 ## Function & Object 鸡蛋问题
 
@@ -219,4 +219,4 @@ Function.__proto__ === Function.prototype					// true
 
 最后给一个完整的图，看懂这张图原型就没问题了。
 
-![2019-07-24-060321](~@assets/prototype-chain/2019-07-24-060321.jpg)
+![2019-07-24-060321](~@assets/posts/prototype-chain/2019-07-24-060321.jpg)

@@ -15,7 +15,7 @@ location: Beijing
 
 **线程是依附于进程的，而进程中使用多线程并行处理能提升运算效率**
 
-![singlethreading-multithreading](~@assets/browser-architecture/singlethreading-multithreading.png)
+![singlethreading-multithreading](~@assets/posts/browser-architecture/singlethreading-multithreading.png)
 
 总结来说，进程和线程之间的关系有以下 4 个特点。
 
@@ -38,7 +38,7 @@ location: Beijing
 
 ### 早期多进程架构
 
-![early-multithreading](~@assets/browser-architecture//early-multithreading.png)
+![early-multithreading](~@assets/posts/browser-architecture//early-multithreading.png)
 
 这个架构解决了单进程了浏览器架构的问题:
 
@@ -48,7 +48,7 @@ location: Beijing
 
 ### 目前多进程架构
 
-![current-multithreading](~@assets/browser-architecture//current-multithreading.png)
+![current-multithreading](~@assets/posts/browser-architecture//current-multithreading.png)
 
 最新的 Chrome 浏览器包括：1 个浏览器（Browser）主进程、1 个 GPU 进程、1 个网络（NetWork）进程、多个渲染进程和多个插件进程。
 
@@ -71,8 +71,8 @@ location: Beijing
 
 在 2016 年，Chrome 官方团队使用“**面向服务的架构**”（Services Oriented Architecture，简称**SOA**）的思想设计了新的 Chrome 架构。原来的各种模块会被重构成独立的服务（Service），每个服务（Service）都可以在独立的进程中运行，访问服务（Service）必须使用定义好的接口，通过 IPC 来通信，从而**构建一个更内聚、松耦合、易于维护和扩展的系统**。
 
-![furture-soa](~@assets/browser-architecture//furture-soa.png)
+![furture-soa](~@assets/posts/browser-architecture//furture-soa.png)
 
 同时 Chrome 还提供灵活的**弹性架构**，在强大性能设备上会以多进程的方式运行基础服务，但是如果在资源受限的设备上（如下图），Chrome 会将很多服务整合到一个进程中，从而节省内存占用。
 
-![furture-soa-flexible](~@assets/browser-architecture//furture-soa-flexible.png)
+![furture-soa-flexible](~@assets/posts/browser-architecture//furture-soa-flexible.png)

@@ -75,13 +75,13 @@ Cache-control: max-age=30
 
 `Cache-Control` **可以在请求头或者响应头中设置**，并且可以组合使用多种指令:
 
-![Cache-Control](~@assets/browser-cache/Cache-Control.png)
+![Cache-Control](~@assets/posts/browser-cache/Cache-Control.png)
 
 我们可以将**多个指令配合起来一起使用**，达到多个目的。比如说我们希望资源能被缓存下来，并且是客户端和代理服务器都能缓存，还能设置缓存失效时间等等。
 
 接下来我们就来学习一些常见指令的作用:
 
-![cache-control-cmd](~@assets/browser-cache/cache-control-cmd.png)
+![cache-control-cmd](~@assets/posts/browser-cache/cache-control-cmd.png)
 
 ### 协商缓存
 
@@ -89,7 +89,7 @@ Cache-control: max-age=30
 
 当浏览器发起请求验证资源时，如果资源没有做改变，那么服务端就会返回 304 状态码，并且更新浏览器缓存有效期。
 
-![last-modified](~@assets/browser-cache/last-modified.png)
+![last-modified](~@assets/posts/browser-cache/last-modified.png)
 
 #### Last-Modified 和 If-Modified-Since
 

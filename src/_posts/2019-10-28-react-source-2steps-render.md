@@ -74,7 +74,7 @@ export default App;
 ReactDOM.render(<App />, document.getElementById('root'));
 ```
 运行案例后，查看Chrome性能分析图：
-![react-sync-profile](~@/assets/react-source-2steps-render/react-sync-profile.png)
+![react-sync-profile](~@/assets/posts/react-source-2steps-render/react-sync-profile.png)
 
 从结果可知，尽管两个任务理应“同时”运行，但react会先把第一个任务执行完后再执行第二个任务，这就是react同步模式：
 > 多个任务时，react都会按照任务顺序一个一个执行，它无法保证后面的任务能在本应执行的时间执行。（其实就是JS本身特性EventLoop的展现。比如只要一个while循环足够久，理应在某个时刻执行的方法就会被延迟到while循环结束后才运行。）
@@ -129,7 +129,7 @@ handleButtonClick = () => {
 }
 ```
 上述代码的修改主要是将两个更新任务区分开来，方便在性能分析图上进行分析：
-![react-concurrent-profile](~@/assets/react-source-2steps-render/react-concurrent-profile.png)
+![react-concurrent-profile](~@/assets/posts/react-source-2steps-render/react-concurrent-profile.png)
 通过上面的性能分析图我们可以知道，在 Concurrent 模式下，可以中断已经进行的渲染，优先进行高优先级的更新渲染。那么 Concurrent 模式是如何做到中断更新的呢？
 
 在实现虚拟 DOM 的情况下，一整个渲染流程包含“基于状态更新虚拟节点”、“将更新后的虚拟节点应用于渲染”两个阶段。React 16 将前者称为 render 阶段，即渲染虚拟节点；后者称为 commit 阶段，即提交虚拟节点，完成 dom 树的渲染等。为了保证视图的一致性，commit 阶段是不能被打断的；render 阶段却可以增量执行。
@@ -137,7 +137,7 @@ handleButtonClick = () => {
 至于 Concurrent 模式详细的实现原理、优先级的实现等，我们先暂时不谈。我们先把目光聚焦在上文所说的渲染流程的两个阶段上。
 ## 总体流程
 React 16 总体流程大致如下：
-![render-commit-process](~@/assets/react-source-2steps-render/render-commit-process.png)
+![render-commit-process](~@/assets/posts/react-source-2steps-render/render-commit-process.png)
 那么我们根据一个例子来梳理首次渲染的流程：
 ```jsx
 // App.js
@@ -534,7 +534,7 @@ export const OffscreenComponent = 23;
 export const LegacyHiddenComponent = 24;
 ```
 可以看到目前有 25 个枚举值。那么结合我们的例子分析一下创建的顺序。
-![beginwork-workinpregress-tag](~@/assets/react-source-2steps-render/beginwork-workinpregress-tag.png)
+![beginwork-workinpregress-tag](~@/assets/posts/react-source-2steps-render/beginwork-workinpregress-tag.png)
 有上述的log，我们可以看到各个节点对应的 Fiber 节点的 tag 都是多少，那么这 tag 属性是怎么样赋值上去的呢？
 
 其实首次渲染在执行到 `renderRootSync` 函数时有一个判断：
@@ -1870,7 +1870,7 @@ function App() {
 ReactDOM.render(<App/>, document.getElementById('root'));
 ```
 对应的 Fiber 树和 DOM 树结构为：
-![fiber-tree-dom-tree-1](~@/assets/react-source-2steps-render/fiber-tree-dom-tree-1.png)
+![fiber-tree-dom-tree-1](~@/assets/posts/react-source-2steps-render/fiber-tree-dom-tree-1.png)
 当在 div 的子节点 Item 前插入一个新节点 p，即 App变为：
 ```javascript
 function App() {
@@ -1883,7 +1883,7 @@ function App() {
 }
 ```
 对应的 Fiber 树和 DOM 树结构为：
-![fiber-tree-dom-tree-2](~@/assets/react-source-2steps-render/fiber-tree-dom-tree-2.png)
+![fiber-tree-dom-tree-2](~@/assets/posts/react-source-2steps-render/fiber-tree-dom-tree-2.png)
 此时 DOM 节点 p 的兄弟节点为 li，而 Fiber 节点 p 对应的兄弟 DOM 节点为：`fiberP.sibling.child` 
 即 `fiber p` 的兄弟 `fiber Item` 的子 `fiber li`
 #### Update Effect
@@ -2355,6 +2355,6 @@ function commitAttachRef(finishedWork: Fiber) {
 #### 总结
 从这节我们学到，Layout 阶段会遍历 effectList，依次执行 `commitLayoutEffects` 。该方法的主要工作为：**根据 flags 调用不同的处理函数处理 Fiber 并更新 rsef**。
 ## 流程图解
-![full-process](~@/assets/react-source-2steps-render/full-process.png)
+![full-process](~@/assets/posts/react-source-2steps-render/full-process.png)
 ## 整体总结
 👻

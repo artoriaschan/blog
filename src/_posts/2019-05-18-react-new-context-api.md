@@ -50,7 +50,7 @@ React 组件允许 Consumers 订阅 context 的改变。
 ## 范例
 使用新版Context API和Mobx写一个TodoList
 ### 1.目录结构
-![](~@assets/react-new-context-api/1536220593388-94382a12-da62-45f9-ab97-2028716dc6bb.png)
+![](~@assets/posts/react-new-context-api/1536220593388-94382a12-da62-45f9-ab97-2028716dc6bb.png)
 ### 2.编写Store
 使用Mobx编写Store
 ```javascript

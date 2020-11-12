@@ -341,7 +341,7 @@ if (options.optimize !== false) {
 const code = generate(ast, options)
 ```
 ### 总结
-![create-compiler](~@/assets/vue-source-compile/create-compiler.png)
+![create-compiler](~@/assets/posts/vue-source-compile/create-compiler.png)
 
 编译入口逻辑之所以这么绕，是因为 Vue.js 在不同的平台下都会有编译的过程，因此编译过程中的依赖的配置 baseOptions 会有所不同。而编译过程会多次执行，但这同一个平台下每一次的编译过程配置又是相同的，为了不让这些配置在每次编译过程都通过参数传入，Vue.js 利用了函数柯里化的技巧很好的实现了 baseOptions 的参数保留。同样，Vue.js 也是利用函数柯里化技巧把基础的编译过程函数抽出来，通过 createCompilerCreator(baseCompile) 的方式把真正编译的过程和其它逻辑如对编译配置处理、缓存处理等剥离开，这样的设计还是非常巧妙的。
 
@@ -1159,13 +1159,13 @@ function advance (n) {
 }
 ```
 advance 函数的作用可以通过下列图片了解：
-![advance-example-1](~@/assets/vue-source-compile/advance-example-1.png)
+![advance-example-1](~@/assets/posts/vue-source-compile/advance-example-1.png)
 执行如下代码：
 ```javascript
 advance(4)
 ```
 执行结果：
-![advance-example-2](~@/assets/vue-source-compile/advance-example-2.png)
+![advance-example-2](~@/assets/posts/vue-source-compile/advance-example-2.png)
 匹配过程中大量使用了正则表达式：
 ```javascript
 // src/compiler/parser/html-parser.js
@@ -1393,7 +1393,7 @@ function parseEndTag (tagName, start, end) {
 }
 ```
 parseEndTag 的核心逻辑很简单，这里我们可以回顾一下 handleStartTag 中，对于非一元标签（有 endTag）我们都把它构造成一个对象压入到 stack 中，如图所示：
-![parseHTML-stack](~@/assets/vue-source-compile/parseHTML-stack.png)
+![parseHTML-stack](~@/assets/posts/vue-source-compile/parseHTML-stack.png)
 
 那么对于闭合标签的解析，就是倒序 stack，找到第一个和当前 endTag 匹配的元素。如果是正常的标签匹配，那么 stack 的最后一个元素应该和当前的 endTag 匹配，但是考虑到如下错误情况：
 ```javascript
@@ -1888,7 +1888,7 @@ return {
 }
 ```
 ### 总结
-![parse-flow](~@/assets/vue-source-compile/parse-flow.png)
+![parse-flow](~@/assets/posts/vue-source-compile/parse-flow.png)
 
 parse 的目标是把 template 模板字符串转换成 AST 树，它是一种用 JavaScript 对象的形式来描述整个模板。那么整个 parse 的过程是利用正则表达式顺序解析模板，当解析到开始标签、闭合标签、文本的时候都会分别执行对应的回调函数，来达到构造 AST 树的目的。
 
