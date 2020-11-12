@@ -329,7 +329,7 @@ function App() {
 }
 ```
 对应的 Fiber 树结构如下图所示：
-![fiber-tree](~@/assets/react-source-architecture-and-concept/fiber-tree.png)
+![fiber-tree](~@/assets/posts/react-source-architecture-and-concept/fiber-tree.png)
 
 * **静态数据结构**
 

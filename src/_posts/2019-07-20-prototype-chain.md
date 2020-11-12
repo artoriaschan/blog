@@ -127,7 +127,7 @@ Object.prototype 表示 Object 的原型对象，其 `[[Prototype]]` 属性是 n
 
 Object.prototype 就是原型链的顶端（不考虑 null 的情况下），所有对象继承了它的 toString 等方法和属性。
 
-![20191215220242](~@assets/prototype-chain/20191215220242.png)
+![20191215220242](~@assets/posts/prototype-chain/20191215220242.png)
 
 ## Function.prototype
 

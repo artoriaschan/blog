@@ -50,7 +50,7 @@ function myWork(deadline) {
 
 结合上图，我们可以得知 requestIdleCallback 是在 Layout 与 Paint 之后执行的，这也就意味着 requestIdleCallback 里适合做 JS 计算，如果再进行 DOM 的变更，会重新触发 Layout 与 Paint，帧的时间也会因此不可控，`requestIdleCallback` 的兼容性也比较差。在 React 内部采用 `requestAnimationFrame` 作为 [ployfill](https://github.com/facebook/react/blob/v16.8.0/packages/scheduler/src/Scheduler.js#L455)，通过 [帧率动态调整](https://github.com/facebook/react/blob/v16.8.0/packages/scheduler/src/Scheduler.js#L649)，计算 timeRemaining，模拟 `requestIdleCallback`，从而实现时间分片（Time Slicing），一个时间片就是一个渲染帧内 JS 能获得的最大执行时间。`requestAnimationFrame` 触发在 Layout 与 Paint 之前，方便做 DOM 变更。
 
-![compatible](~@assets/requestIdleCallback/compatible.png)
+![compatible](~@assets/posts/requestIdleCallback/compatible.png)
 
 ### 默认简单方法使用
 
