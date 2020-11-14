@@ -5,8 +5,6 @@ tags:
   - framework
   - web component
 ---
-> 本文系转载，更多详情点击[原地址](https://github.com/dt-fe/weekly/blob/v2/057.%E7%B2%BE%E8%AF%BB%E3%80%8A%E7%8E%B0%E4%BB%A3%20js%20%E6%A1%86%E6%9E%B6%E5%AD%98%E5%9C%A8%E7%9A%84%E6%A0%B9%E6%9C%AC%E5%8E%9F%E5%9B%A0%E3%80%8B.md)
-
 ## 1 引言
 
 深入思考为何前端需要框架，以及 web components 是否可以代替前端框架？
@@ -135,8 +133,4 @@ html 不依赖 js 的设计可能已经跟不上前端发展步伐了，也许 j
 2.  传统的前端三剑客正面临着进一步发展乏力的危机。
 3.  现代前端框架正在告诉我们新的三剑客：js（虚拟 dom、虚拟 css）。
 
-## 5 更多讨论
-
-> 讨论地址是：[精读《现代 js 框架存在的根本原因》 · Issue #84 · dt-fe/weekly](https://github.com/dt-fe/weekly/issues/84)
-
-**如果你想参与讨论，请[点击这里](https://github.com/dt-fe/weekly)，每周都有新的主题，周末或周一发布。**
+> 本文系转载，更多详情点击[原地址](https://github.com/dt-fe/weekly/blob/v2/057.%E7%B2%BE%E8%AF%BB%E3%80%8A%E7%8E%B0%E4%BB%A3%20js%20%E6%A1%86%E6%9E%B6%E5%AD%98%E5%9C%A8%E7%9A%84%E6%A0%B9%E6%9C%AC%E5%8E%9F%E5%9B%A0%E3%80%8B.md)
