@@ -2,8 +2,8 @@
 title: 精读《可视化搭建思考 - 富文本搭建》
 date: 2020-08-10
 tags:
-  - framework
-  - web component
+  - thinking
+  - visualization
 ---
 ## 1 引言
 
