@@ -953,5 +953,467 @@ if (
 
 这样做的好处是：如果计算出的 `state` 与该 `hook` 之前保存的 `state` 一致，那么完全不需要开启一次调度。即使计算出的 `state` 与该 `hook` 之前保存的 `state` 不一致，在 `申明阶段` 也可以直接使用 `调用阶段` 已经计算出的 `state` 。
 ## useEffect
+在[通过首次渲染看React两阶段渲染](/2019/10/28/react-source-2steps-render/#commit-阶段)我们讲解了useEffect的工作流程。
+
+> 在 `flushPassiveEffects` 函数内部调用 `flushPassiveEffectsImpl` 函数，而其又会从全局变量 `rootWithPendingPassiveEffects` 获取 `effectList` 。
+
+现在我们深入 `flushPassiveEffects` 方法内部探索 `useEffect` 的工作原理。
+### flushPassiveEffectsImpl
+`flushPassiveEffects` 内部会设置 `优先级` ，并执行 `flushPassiveEffectsImpl` 。
+```javascript {17,22}
+// packages/react-reconciler/src/ReactFiberWorkLoop.old.js
+
+export function flushPassiveEffects(): boolean {
+  // Returns whether passive effects were flushed.
+  if (pendingPassiveEffectsRenderPriority !== NoSchedulerPriority) {
+    const priorityLevel =
+      pendingPassiveEffectsRenderPriority > NormalSchedulerPriority
+        ? NormalSchedulerPriority
+        : pendingPassiveEffectsRenderPriority;
+    pendingPassiveEffectsRenderPriority = NoSchedulerPriority;
+    if (decoupleUpdatePriorityFromScheduler) {
+      const previousLanePriority = getCurrentUpdateLanePriority();
+      try {
+        setCurrentUpdateLanePriority(
+          schedulerPriorityToLanePriority(priorityLevel),
+        );
+        return runWithPriority(priorityLevel, flushPassiveEffectsImpl);
+      } finally {
+        setCurrentUpdateLanePriority(previousLanePriority);
+      }
+    } else {
+      return runWithPriority(priorityLevel, flushPassiveEffectsImpl);
+    }
+  }
+  return false;
+}
+```
+`flushPassiveEffectsImpl` 主要做三件事：
+* 调用该 `useEffect` 在上一次 `render` 时的销毁函数
+* 调用该 `useEffect` 在本次 `render` 时的回调函数
+* 如果存在同步任务，不需要等待下次事件循环的宏任务，提前执行他
+```javascript {36,53}
+// packages/react-reconciler/src/ReactFiberWorkLoop.old.js
+
+function flushPassiveEffectsImpl() {
+  if (rootWithPendingPassiveEffects === null) {
+    return false;
+  }
+
+  const root = rootWithPendingPassiveEffects;
+  const lanes = pendingPassiveEffectsLanes;
+  rootWithPendingPassiveEffects = null;
+  pendingPassiveEffectsLanes = NoLanes;
+
+  // ...
+
+  const prevExecutionContext = executionContext;
+  executionContext |= CommitContext;
+  const prevInteractions = pushInteractions(root);
+
+  // 在调用任何 passive effect 创建函数之前，必须先调用所有待处理的 passive effect 销毁函数，这一点很重要。
+  // 否则，同级组件中的 effects 可能会相互干扰。例如一个组件中的 destroy 函数可能会无意中覆盖另一组件中 create 函数设置的 ref 值。
+  // Layout effects 具有相同的约束。
+
+  // First pass: Destroy stale passive effects.
+  const unmountEffects = pendingPassiveHookEffectsUnmount;
+  pendingPassiveHookEffectsUnmount = [];
+  for (let i = 0; i < unmountEffects.length; i += 2) {
+    const effect = ((unmountEffects[i]: any): HookEffect);
+    const fiber = ((unmountEffects[i + 1]: any): Fiber);
+    const destroy = effect.destroy;
+    effect.destroy = undefined;
+    // ...
+    if (typeof destroy === 'function') {
+      // ...
+      try {
+        // ...
+        destroy();
+      } catch (error) {
+        invariant(fiber !== null, 'Should be working on an effect.');
+        captureCommitPhaseError(fiber, error);
+      }
+    }
+  }
+  // Second pass: Create new passive effects.
+  const mountEffects = pendingPassiveHookEffectsMount;
+  pendingPassiveHookEffectsMount = [];
+  for (let i = 0; i < mountEffects.length; i += 2) {
+    const effect = ((mountEffects[i]: any): HookEffect);
+    const fiber = ((mountEffects[i + 1]: any): Fiber);
+    // ...
+    try {
+      const create = effect.create;
+      // ...
+      effect.destroy = create();
+    } catch (error) {
+      invariant(fiber !== null, 'Should be working on an effect.');
+      captureCommitPhaseError(fiber, error);
+    }
+  }
+
+  // 注意：当前假设在 root fiber 上没有 passive effects ，因为根不是其自身 effect list 的一部分。
+  // 这在将来可能会改变。
+  let effect = root.current.firstEffect;
+  while (effect !== null) {
+    const nextNextEffect = effect.nextEffect;
+    // Remove nextEffect pointer to assist GC
+    effect.nextEffect = null;
+    if (effect.flags & Deletion) {
+      detachFiberAfterEffects(effect);
+    }
+    effect = nextNextEffect;
+  }
+  // ...
+  executionContext = prevExecutionContext;
+  // 执行同步任务
+  flushSyncCallbackQueue();
+  // ...
+  return true;
+}
+```
+目前我们先关注前两步。
+
+在 `v16` 中第一步是同步执行的，在 [官方博客](https://zh-hans.reactjs.org/blog/2020/08/10/react-v17-rc.html#effect-cleanup-timing) 中提到：
+> 副作用清理函数（如果存在）在 React 16 中同步运行。我们发现，对于大型应用程序来说，这不是理想选择，因为同步会减缓屏幕的过渡（例如，切换标签）。
+
+基于这个原因，在v17.0.0中，useEffect的两个阶段会在页面渲染后（layout阶段后）异步执行。
+> 事实上，从代码中看，v16.13.1中已经是异步执行了
+
+接下来我们详细讲解这两个步骤。
+### 阶段一：销毁函数的执行
+`effect` 在每次渲染的时候都会执行。这就是为什么 `React` 会在执行当前 `effect` 之前对上一个 `effect` 进行清除。
+
+`useEffect` 的执行需要保证所有组件 `useEffect` 的 `销毁函数` 必须都执行完后才能执行任意一个组件的 `useEffect` 的 `回调函数` 。
+
+就如代码中的注释所举的例子体现的一样：可能存在多个组件间可能共用同一个ref。
+
+如果不是按照“全部销毁”再“全部执行”的顺序，那么在某个组件 `useEffect` 的 `销毁函数` 中修改的 `ref.current` 可能影响另一个组件 `useEffect` 的 `回调函数` 中的同一个 `ref` 的 `current` 属性。
+
+在 `useLayoutEffect` 中也有同样的问题，所以他们都遵循“全部销毁”再“全部执行”的顺序。
+
+在阶段一，会遍历并执行所有 `useEffect` 的 `销毁函数` 。
+```javascript {4,19}
+// packages/react-reconciler/src/ReactFiberWorkLoop.old.js -> function flushPassiveEffectsImpl
+
+// pendingPassiveHookEffectsUnmount中保存了所有需要执行销毁的useEffect
+const unmountEffects = pendingPassiveHookEffectsUnmount;
+pendingPassiveHookEffectsUnmount = [];
+for (let i = 0; i < unmountEffects.length; i += 2) {
+  // i 下标保存 effect
+  const effect = ((unmountEffects[i]: any): HookEffect);
+  // i + 1 下标保存 fiber
+  const fiber = ((unmountEffects[i + 1]: any): Fiber);
+  const destroy = effect.destroy;
+  effect.destroy = undefined;
+  // ...
+  if (typeof destroy === 'function') {
+    // ...
+    try {
+      // ...
+      // 执行销毁函数
+      destroy();
+    } catch (error) {
+      invariant(fiber !== null, 'Should be working on an effect.');
+      captureCommitPhaseError(fiber, error);
+    }
+  }
+}
+```
+向 `pendingPassiveHookEffectsUnmount` 数组内 `push数据` 的操作发生在 `layout阶段` 的 `commitLayoutEffectOnFiber` 函数内部的 `schedulePassiveEffects` 方法中。
+
+其中 `commitLayoutEffectOnFiber` 为 `commitLifeCycles` 函数的别名。
+> commitLayoutEffectOnFiber 方法我们在 [Layout阶段](/2019/10/28/react-source-2steps-render/#commitlayouteffectonfiber) 已经介绍
+```javascript {15-16,29}
+// packages/react-reconciler/src/ReactFiberCommitWork.old.js
+
+function schedulePassiveEffects(finishedWork: Fiber) {
+  const updateQueue: FunctionComponentUpdateQueue | null = (finishedWork.updateQueue: any);
+  const lastEffect = updateQueue !== null ? updateQueue.lastEffect : null;
+  if (lastEffect !== null) {
+    const firstEffect = lastEffect.next;
+    let effect = firstEffect;
+    do {
+      const {next, tag} = effect;
+      if (
+        (tag & HookPassive) !== NoHookEffect &&
+        (tag & HookHasEffect) !== NoHookEffect
+      ) {
+        enqueuePendingPassiveHookEffectUnmount(finishedWork, effect);
+        enqueuePendingPassiveHookEffectMount(finishedWork, effect);
+      }
+      effect = next;
+    } while (effect !== firstEffect);
+  }
+}
+
+// packages/react-reconciler/src/ReactFiberWorkLoop.old.js
+
+export function enqueuePendingPassiveHookEffectUnmount(
+  fiber: Fiber,
+  effect: HookEffect,
+): void {
+  pendingPassiveHookEffectsUnmount.push(effect, fiber);
+  
+  if (!rootDoesHavePassiveEffects) {
+    rootDoesHavePassiveEffects = true;
+    scheduleCallback(NormalSchedulerPriority, () => {
+      flushPassiveEffects();
+      return null;
+    });
+  }
+}
+```
+### 阶段二：回调函数的执行
+与阶段一类似，同样遍历数组，执行对应 `effect` 的 `回调函数` 。
+
+其中向 `pendingPassiveHookEffectsMount` 中 `push数据` 的操作同样发生在 `schedulePassiveEffects` 中。
+```javascript {3,10-12}
+// packages/react-reconciler/src/ReactFiberWorkLoop.old.js -> function flushPassiveEffectsImpl
+
+const mountEffects = pendingPassiveHookEffectsMount;
+pendingPassiveHookEffectsMount = [];
+for (let i = 0; i < mountEffects.length; i += 2) {
+  const effect = ((mountEffects[i]: any): HookEffect);
+  const fiber = ((mountEffects[i + 1]: any): Fiber);
+  // ...
+  try {
+    const create = effect.create;
+    // ...
+    effect.destroy = create();
+  } catch (error) {
+    invariant(fiber !== null, 'Should be working on an effect.');
+    captureCommitPhaseError(fiber, error);
+  }
+}
+```
 ## useRef
+`ref` 是 `reference（引用）` 的缩写。和 `Vue` 相似， `React` 推荐用 `ref` 保存 `DOM对象` 。
+
+事实上，任何需要被"引用"的数据都可以保存在 `ref` 中， `useRef` 的出现将这种思想进一步发扬光大。
+
+在 `Hooks数据结构` 一节我们讲到：
+
+对于 `useRef(1)` ， `memoizedState` 保存 `{current: 1}`
+
+本节我们会介绍 `useRef` 的实现，以及 `ref` 的工作流程。
+
+由于 `string类型` 的 `ref` 已不推荐使用，所以本节针对 `function | {current: any}类型` 的 `ref`。
+### useRef的定义
+与其他 `Hook` 一样，对于 `mount` 与 `update` ， `useRef` 对应两个不同 `dispatcher` 。
+```javascript
+// packages/react-reconciler/src/ReactFiberHooks.old.js
+
+function mountRef<T>(initialValue: T): {|current: T|} {
+  // 获取当前useRef hook
+  const hook = mountWorkInProgressHook();
+  // ...
+  // 创建 ref
+  const ref = {current: initialValue};
+  // memoizedState 保存 ref 引用
+  hook.memoizedState = ref;
+  return ref;
+}
+
+function updateRef<T>(initialValue: T): {|current: T|} {
+  // 获取当前useRef hook
+  const hook = updateWorkInProgressHook();
+  // 返回 memoizedState 中的 ref引用
+  return hook.memoizedState;
+}
+```
+可见， `useRef` 仅仅是返回一个包含 `current属性` 的 `对象` 。
+
+为了验证这个观点，我们再看下 `React.createRef` 方法的实现：
+```javascript {4-6}
+// packages/react/src/ReactCreateRef.js
+
+export function createRef(): RefObject {
+  const refObject = {
+    current: null,
+  };
+  // ...
+  return refObject;
+}
+```
+了解了 `ref` 的 `数据结构` 后，我们再来看看 `ref` 的 `工作流程` 。
+### 工作流程
+在React中，HostComponent、ClassComponent、ForwardRef可以赋值ref属性。
+```javascript
+// HostComponent
+<div ref={domRef}></div>
+// ClassComponent / ForwardRef
+<App ref={cpnRef} />
+```
+其中，ForwardRef只是将ref作为第二个参数传递下去，不会进入ref的工作流程。
+
+所以接下来讨论ref的工作流程时会排除ForwardRef。
+```javascript
+// packages/react-reconciler/src/ReactFiberHooks.old.js -> function renderWithHooks
+
+// 对于ForwardRef，secondArg为传递下去的ref
+let children = Component(props, secondArg);
+```
+我们知道 `HostComponent` 在 `commit阶段` 的 `mutaion阶段` 执行 `DOM操作` 。所以，对应 `ref` 的更新也是发生在 `mutaion阶段` 。
+
+再进一步， `mutaion阶段` 执行 `DOM操作` 的依据为 `flags` 。
+
+所以，对于 `HostComponent | ClassComponent` 如果包含 `ref` 操作，那么也会赋值相应的 `flags` 。
+```javascript
+// packages/react-reconciler/src/ReactFiberFlags.js
+
+// You can change the rest (and add more).
+export const Placement = /*                    */ 0b0000000000000000010;
+export const Update = /*                       */ 0b0000000000000000100;
+export const PlacementAndUpdate = /*           */ 0b0000000000000000110;
+export const Deletion = /*                     */ 0b0000000000000001000;
+// ...
+```
+所以， `ref` 的工作流程可以分为两部分：
+* `render阶段` 为含有 `ref属性` 的 `fiber` 添加 `Ref flags`
+* `commit阶段` 为包含 `Ref flags` 的 `fiber` 执行对应操作
+### render 阶段
+在 `render阶段` 的 `beginWork` 与 `completeWork` 中有个同名函数 `markRef` 用于为含有 `ref属性` 的 `fiber` 增加 `Ref flags`。
+```javascript
+// packages/react-reconciler/src/ReactFiberBeginWork.old.js
+
+function markRef(current: Fiber | null, workInProgress: Fiber) {
+  const ref = workInProgress.ref;
+  if (
+    (current === null && ref !== null) ||
+    (current !== null && current.ref !== ref)
+  ) {
+    // Schedule a Ref effect
+    workInProgress.flags |= Ref;
+  }
+}
+
+// packages/react-reconciler/src/ReactFiberCompleteWork.old.js
+
+function markRef(workInProgress: Fiber) {
+  workInProgress.flags |= Ref;
+}
+```
+在 `beginWork` 中，如下两处调用了 `markRef` ：
+* `updateClassComponent` 内的 `finishClassComponent` ，对应 `ClassComponent` 
+> 注意 `ClassComponent` 即使 `shouldComponentUpdate` 为 `false` 该组件也会调用 `markRef`
+* `updateHostComponent` 函数，对应 `HostComponent`
+
+在 `completeWork` 中，如下两处调用了 `markRef` ：
+* `completeWork` 中的 `HostComponent` 类型
+* `completeWork` 中的 `ScopeComponent` 类型
+
+`ScopeComponent` 是一种用于 `管理focus` 的测试特性，详见[这个PR](https://github.com/facebook/react/pull/16587)
+
+总结下组件对应 `fiber` 被赋值 `Ref flags` 需要满足的条件：
+* `fiber类型` 为 `HostComponent` 、 `ClassComponent` 、 `ScopeComponent` （这种情况我们不讨论）
+* 对于 `mount` ， `workInProgress.ref !== null` ，即存在 `ref属性` 
+* 对于 `update` ， `current.ref !== workInProgress.ref` ，即 `ref属性改变` 
+### commit 阶段
+在 `commit阶段` 的 `mutation阶段` 中，对于 `ref属性` 改变的情况，需要先移除之前的 `ref属性` 。
+```javascript {21}
+// packages/react-reconciler/src/ReactFiberWorkLoop.old.js
+
+function commitMutationEffects(
+  root: FiberRoot,
+  renderPriorityLevel: ReactPriorityLevel,
+) {
+  // TODO: Should probably move the bulk of this function to commitWork.
+  while (nextEffect !== null) {
+    setCurrentDebugFiberInDEV(nextEffect);
+
+    const flags = nextEffect.flags;
+
+    if (flags & ContentReset) {
+      commitResetTextContent(nextEffect);
+    }
+
+    if (flags & Ref) {
+      const current = nextEffect.alternate;
+      if (current !== null) {
+        // 移除之前的ref
+        commitDetachRef(current);
+      }
+      // ...
+    }
+    // ...
+  }
+}
+```
+我们来看一下 `commitDetachRef` 函数的定义：
+```javascript {8}
+// packages/react-reconciler/src/ReactFiberCommitWork.old.js
+
+function commitDetachRef(current: Fiber) {
+  const currentRef = current.ref;
+  if (currentRef !== null) {
+    if (typeof currentRef === 'function') {
+      // ...
+      currentRef(null);
+    } else {
+      currentRef.current = null;
+    }
+  }
+}
+```
+接下来，在 `mutation阶段` ，对于 `Deletion flags` 的 `fiber` （对应需要删除的DOM节点），需要递归他的子树，对 `子孙fiber` 的 `ref` 执行类似 `commitDetachRef` 的操作。
+
+我们在 [通过首次渲染看React两阶段渲染 - Mutation阶段](/2019/10/28/react-source-2steps-render/#deletion-effect) 讲到：
+> 而实际上对于 `Deletion flags` 的 `fiber` ，会执行 `commitDeletion` 。
+
+在 `commitDeletion` —— `unmountHostComponents` —— `commitUnmount` —— `ClassComponent | HostComponent类型` 的 `case` 中调用的 `safelyDetachRef` 函数负责执行类似 `commitDetachRef` 的操作。
+```javascript {10,15}
+// packages/react-reconciler/src/ReactFiberCommitWork.old.js
+
+function safelyDetachRef(current: Fiber) {
+  const ref = current.ref;
+  if (ref !== null) {
+    if (typeof ref === 'function') {
+        // ...
+        try {
+          // ...
+          ref(null);
+        } catch (refError) {
+          captureCommitPhaseError(current, refError);
+        }
+    } else {
+      ref.current = null;
+    }
+  }
+}
+```
+接下来进入 `ref` 的赋值阶段。我们在[通过首次渲染看React两阶段渲染 - Layout阶段](/2019/10/28/react-source-2steps-render/#commitlayouteffects) 讲到：
+> `commitLayoutEffect` 会执行 `commitAttachRef` （赋值ref）
+```javascript
+// packages/react-reconciler/src/ReactFiberCommitWork.old.js
+
+function commitAttachRef(finishedWork: Fiber) {
+  const ref = finishedWork.ref;
+  if (ref !== null) {
+    // 获取ref属性对应的Component实例
+    const instance = finishedWork.stateNode;
+    let instanceToUse;
+    switch (finishedWork.tag) {
+      case HostComponent:
+        instanceToUse = getPublicInstance(instance);
+        break;
+      default:
+        instanceToUse = instance;
+    }
+    // Moved outside to ensure DCE works with this flag
+    if (enableScopeAPI && finishedWork.tag === ScopeComponent) {
+      instanceToUse = instance;
+    }
+    // 赋值ref
+    if (typeof ref === 'function') {
+      // ...
+      ref(instanceToUse);
+    } else {
+      // ...
+      ref.current = instanceToUse;
+    }
+  }
+}
+```
+至此，ref的工作流程完毕。
 ## useMemo & useCallback

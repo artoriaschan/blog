@@ -13,6 +13,10 @@ cd src/.vuepress/dist
 # echo 'www.example.com' > CNAME
 
 git init
+# 设置提交者信息
+git config user.name "artoriaschan"
+git config user.email "544396118@qq.com"
+# 提交
 git add -A
 git commit -m 'deploy'
 

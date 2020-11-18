@@ -1116,7 +1116,7 @@ function completeWork(
 #### effectList
 至此render阶段的绝大部分工作就完成了。
 
-还有一个问题：作为 DOM 操作的依据，commit 阶段需要找到所有有 effectTag 的 Fiber 节点并依次执行 effectTag 对应操作。难道需要在 commit 阶段再遍历一次 Fiber 树寻找 `effectTag !== null` 的 Fiber 节点么？
+还有一个问题：作为 DOM 操作的依据，commit 阶段需要找到所有有 flags 的 Fiber 节点并依次执行 flags 对应操作。难道需要在 commit 阶段再遍历一次 Fiber 树寻找 `flags !== null` 的 Fiber 节点么？
 
 这显然是很低效的。
 
@@ -1298,8 +1298,7 @@ commit 阶段的主要工作（即 Renderer 的工作流程）分为三部分：
   // 重置Scheduler绑定的回调函数
   root.callbackNode = null;
 
-  // Update the first and last pending times on this root. The new first
-  // pending time is whatever is left on the root fiber.
+  // 更新这个 root fiber 的第一个和最后一个挂起时间。新的第一个挂起时间是 root fiber 上剩余的时间。
   let remainingLanes = mergeLanes(finishedWork.lanes, finishedWork.childLanes);
   markRootFinished(root, remainingLanes);
 
@@ -1324,17 +1323,13 @@ commit 阶段的主要工作（即 Renderer 的工作流程）分为三部分：
     // times out.
   }
 
-  // 将effectList赋值给firstEffect
-  // 由于每个fiber的effectList只包含他的子孙节点
-  // 所以根节点如果有effectTag则不会被包含进来
-  // 所以这里将有effectTag的根节点插入到effectList尾部
-  // 这样才能保证有effect的fiber都在effectList中
+  // 将 effectList 赋值给 firstEffect
+  // 由于每个 fiber 的 effectList 只包含他的子孙节点
+  // 所以根节点如果有 flags 则不会被包含进来
+  // 所以这里将有 flags 的根节点插入到 effectList 尾部
+  // 这样才能保证有 effect 的 fiber 都在 effectList 中
   let firstEffect;
   if (finishedWork.flags > PerformedWork) {
-    // A fiber's effect list consists only of its children, not itself. So if
-    // the root has an effect, we need to add it to the end of the list. The
-    // resulting list is the set that would belong to the root's parent, if it
-    // had one; that is, all the effects in the tree including the root.
     if (finishedWork.lastEffect !== null) {
       finishedWork.lastEffect.nextEffect = finishedWork;
       firstEffect = finishedWork.firstEffect;
@@ -1356,8 +1351,7 @@ commit 阶段的主要工作（即 Renderer 的工作流程）分为三部分：
   const rootDidHavePassiveEffects = rootDoesHavePassiveEffects;
   // useEffect相关
   if (rootDoesHavePassiveEffects) {
-    // This commit has passive effects. Stash a reference to them. But don't
-    // schedule a callback until after flushing layout work.
+    // 此提交具有被动效果。隐藏对它们的引用。但是在刷新布局工作之后再安排回调。
     rootDoesHavePassiveEffects = false;
     rootWithPendingPassiveEffects = root;
     pendingPassiveEffectsLanes = lanes;
@@ -1417,7 +1411,9 @@ commit 阶段的主要工作（即 Renderer 的工作流程）分为三部分：
     throw error;
   }
   // ...
-  // If layout work was scheduled, flush it now.
+  // 执行同步任务，这样同步任务不需要等到下次事件循环再执行
+  // 比如在 componentDidMount 中执行 setState 创建的更新会在这里被同步执行
+  // 或useLayoutEffect
   flushSyncCallbackQueue();
   // ...
   return null;
@@ -1596,7 +1592,7 @@ if ((flags & Passive) !== NoFlags) {
 
 我们接下来讨论 useEffect 如何被异步调度，以及为什么要异步（而不是同步）调度。
 ##### 如何异步调度
-在 `flushPassiveEffects` 函数内部调用 `flushPassiveEffectsImpl` 函数，而其又会从全局变量 rootWithPendingPassiveEffects 获取 effectList 。
+在 `flushPassiveEffects` 函数内部调用 `flushPassiveEffectsImpl` 函数，而其又会从全局变量 `rootWithPendingPassiveEffects` 获取 `effectList` 。
 
 在 completeWork 一节我们讲到，effectList 中保存了需要执行副作用的 Fiber 节点。其中副作用包括：
 * 插入 DOM 节点（Placement）
@@ -2048,7 +2044,7 @@ function updateDOMProperties(
 }
 ```
 #### Deletion Effect
-当Fiber节点含有Deletion effectTag，意味着该Fiber节点对应的DOM节点需要从页面中删除。调用的方法为commitDeletion。
+当Fiber节点含有Deletion flags ，意味着该Fiber节点对应的DOM节点需要从页面中删除。调用的方法为 commitDeletion 。
 ```javascript
 function commitDeletion(
   finishedRoot: FiberRoot,
@@ -2072,7 +2068,7 @@ function commitDeletion(
 ```
 该方法会执行如下操作：
 * 递归调用 Fiber 节点及其子孙 Fiber 节点中 fiber.tag 为 ClassComponent 的 `componentWillUnmount` 生命周期钩子，从页面移除 Fiber 节点对应 DOM 节点
-* 解绑 ref
+* 解绑 ref: `unmountHostComponents 函数 -> commitUnmount 函数`
 * 调度 useEffect 的销毁函数
 #### 总结
 从这节我们学到，Mutation 阶段会遍历 effectList，依次执行 `commitMutationEffects` 函数。该函数的主要工作为：**根据 flags 调用不同的处理函数处理 Fiber**。
