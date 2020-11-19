@@ -1417,3 +1417,90 @@ function commitAttachRef(finishedWork: Fiber) {
 ```
 至此，ref的工作流程完毕。
 ## useMemo & useCallback
+在了解其他 `hook` 的实现后，理解 `useMemo` 与 `useCallback` 的实现非常容易。
+
+本节我们还是以 `mount` 与 `update` 两种情况分别讨论这两个 `hook` 。
+
+### Mount
+```javascript {10-13,21-22}
+// packages/react-reconciler/src/ReactFiberHooks.old.js
+
+function mountMemo<T>(
+  nextCreate: () => T,
+  deps: Array<mixed> | void | null,
+): T {
+  // 创建并返回当前hook
+  const hook = mountWorkInProgressHook();
+  const nextDeps = deps === undefined ? null : deps;
+  // 根据 nextCreate 计算value
+  const nextValue = nextCreate();
+  // 将计算过的 value 与 deps 保存在 hook.memoizedState
+  hook.memoizedState = [nextValue, nextDeps];
+  return nextValue;
+}
+
+function mountCallback<T>(callback: T, deps: Array<mixed> | void | null): T {
+  // 创建并返回当前hook
+  const hook = mountWorkInProgressHook();
+  const nextDeps = deps === undefined ? null : deps;
+  // 将 callback 与 deps 保存在 hook.memoizedState
+  hook.memoizedState = [callback, nextDeps];
+  return callback;
+}
+```
+可以看到，与 `mountCallback` 这两个唯一的区别是：
+* `mountMemo` 会将回调函数 (`nextCreate`) 的 `执行结果` 作为 `value` 保存
+* `mountCallback` 会保存 `回调函数` 作为 `value` 保存
+### Update
+```javascript {15-18,22-25,37-40,44-45}
+// packages/react-reconciler/src/ReactFiberHooks.old.js
+
+function updateMemo<T>(
+  nextCreate: () => T,
+  deps: Array<mixed> | void | null,
+): T {
+  // 返回当前hook
+  const hook = updateWorkInProgressHook();
+  const nextDeps = deps === undefined ? null : deps;
+  const prevState = hook.memoizedState;
+  if (prevState !== null) {
+    if (nextDeps !== null) {
+      const prevDeps: Array<mixed> | null = prevState[1];
+      // 判断 update 前后 deps 是否变化
+      if (areHookInputsEqual(nextDeps, prevDeps)) {
+        // 未变化 返回上一次保存的 value
+        return prevState[0];
+      }
+    }
+  }
+  // deps 变化，重新计算value
+  const nextValue = nextCreate();
+  // 将计算过的 value 与 新的 deps 保存在 hook.memoizedState
+  hook.memoizedState = [nextValue, nextDeps];
+  return nextValue;
+}
+
+function updateCallback<T>(callback: T, deps: Array<mixed> | void | null): T {
+  // 返回当前hook
+  const hook = updateWorkInProgressHook();
+  const nextDeps = deps === undefined ? null : deps;
+  const prevState = hook.memoizedState;
+  if (prevState !== null) {
+    if (nextDeps !== null) {
+      const prevDeps: Array<mixed> | null = prevState[1];
+      // 判断 update 前后 deps 是否变化
+      if (areHookInputsEqual(nextDeps, prevDeps)) {
+        // 未变化 返回上一次保存的 callback
+        return prevState[0];
+      }
+    }
+  }
+  // deps 变化，将 callback 与 新的 deps 保存在 hook.memoizedState
+  hook.memoizedState = [callback, nextDeps];
+  return callback;
+}
+```
+可见，对于 `update` ，这两个 `hook` 的唯一区别也是 **回调函数本身还是回调函数的执行结果作为value**。
+
+## 整体总结
+👻
