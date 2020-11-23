@@ -25,7 +25,8 @@ location: Beijing
 
 所以解决卡顿问题的关键就是避免UI渲染线程长时间地挂起，这就要求我们控制JS的合理的执行时间。那么 JS 执行时间多久会是合理的呢？这里就需要提到帧率了，大多数设备的帧率为 60 次/秒，也就是每帧消耗 16.67 ms 能让用户感觉到相当流畅。浏览器的一帧的生命周期中包含如下图过程：
 
-![life-of-a-frame](~@assets/posts/requestIdleCallback/life-of-a-frame.jpg)
+![life-of-a-frame2](~@assets/posts/requestIdleCallback/life-of-a-frame2.png)
+![life-of-a-frame](~@assets/posts/requestIdleCallback/life-of-a-frame.png)
 
 在一帧中，我们需要将 JS 执行时间控制在合理的范围内，不影响后续 Layout 与 Paint 的过程。而经常被大家所提及的 requestIdleCallback 就能够充分利用帧与帧之间的空闲时间来执行 JS，可以根据 callback 传入的 dealine 判断当前是否还有空闲时间（timeRemaining）用于执行。由于浏览器可能始终处于繁忙的状态，导致 callback 一直无法执行，它还能够设置超时时间（timeout），一旦超过时间（didTimeout）能使任务被强制执行。
 

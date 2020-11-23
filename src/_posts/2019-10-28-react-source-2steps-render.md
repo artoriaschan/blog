@@ -135,6 +135,48 @@ handleButtonClick = () => {
 在实现虚拟 DOM 的情况下，一整个渲染流程包含“基于状态更新虚拟节点”、“将更新后的虚拟节点应用于渲染”两个阶段。React 16 将前者称为 render 阶段，即渲染虚拟节点；后者称为 commit 阶段，即提交虚拟节点，完成 dom 树的渲染等。为了保证视图的一致性，commit 阶段是不能被打断的；render 阶段却可以增量执行。
 
 至于 Concurrent 模式详细的实现原理、优先级的实现等，我们先暂时不谈。我们先把目光聚焦在上文所说的渲染流程的两个阶段上。
+### React的其他入口函数
+当前React共有三种模式：
+* `legacy` ，这是 `当前React` 使用的方式。当前没有计划删除本模式，但是这个模式可能不支持一些新功能。
+* `blocking` ，开启 `部分concurrent模式特性` 的 `中间模式` 。目前正在 `实验中` 。作为 `迁移` 到 `concurrent模式` 的 `第一个步骤` 。
+* `concurrent` ， `面向未来` 的开发模式。我们之前讲的 `任务中断/任务优先级` 都是针对 `concurrent模式` 。
+
+你可以从下表看出各种模式对特性的支持：
+
+|   | legacy 模式  | blocking 模式  | concurrent 模式  |
+|---  |---  |---  |---  |
+|[String Refs](https://zh-hans.reactjs.org/docs/refs-and-the-dom.html#legacy-api-string-refs)  |✅  |🚫**  |🚫**  |
+|[Legacy Context](https://zh-hans.reactjs.org/docs/legacy-context.html) |✅  |🚫**  |🚫**  |
+|[findDOMNode](https://zh-hans.reactjs.org/docs/strict-mode.html#warning-about-deprecated-finddomnode-usage)  |✅  |🚫**  |🚫**  |
+|[Suspense](https://zh-hans.reactjs.org/docs/concurrent-mode-suspense.html#what-is-suspense-exactly) |✅  |✅  |✅  |
+|[SuspenseList](https://zh-hans.reactjs.org/docs/concurrent-mode-patterns.html#suspenselist) |🚫  |✅  |✅  |
+|Suspense SSR + Hydration |🚫  |✅  |✅  |
+|Progressive Hydration  |🚫  |✅  |✅  |
+|Selective Hydration  |🚫  |🚫  |✅  |
+|Cooperative Multitasking |🚫  |🚫  |✅  |
+|Automatic batching of multiple setStates     |🚫* |✅  |✅  |
+|[Priority-based Rendering](https://zh-hans.reactjs.org/docs/concurrent-mode-patterns.html#splitting-high-and-low-priority-state) |🚫  |🚫  |✅  |
+|[Interruptible Prerendering](https://zh-hans.reactjs.org/docs/concurrent-mode-intro.html#interruptible-rendering) |🚫  |🚫  |✅  |
+|[useTransition](https://zh-hans.reactjs.org/docs/concurrent-mode-patterns.html#transitions)  |🚫  |🚫  |✅  |
+|[useDeferredValue](https://zh-hans.reactjs.org/docs/concurrent-mode-patterns.html#deferring-a-value) |🚫  |🚫  |✅  |
+|[Suspense Reveal "Train"](https://zh-hans.reactjs.org/docs/concurrent-mode-patterns.html#suspense-reveal-train)  |🚫  |🚫  |✅  |
+::: warning
+该表格为官网博文 《使用 Concurrent 模式（实验性）》中，[点此处](https://zh-hans.reactjs.org/docs/concurrent-mode-adoption.html#why-so-many-modes) 查看原文
+:::
+*：`legacy`模式在合成事件中有自动批处理的功能，但仅限于一个浏览器任务。非`React`事件想使用这个功能必须使用 `unstable_batchedUpdates`。在`blocking`模式和`concurrent`模式下，所有的`setState`在默认情况下都是批处理的。
+**：会在开发中发出警告。
+
+模式的变化影响整个应用的工作方式，所以无法只针对某个组件开启不同模式。
+
+基于此原因，可以通过不同的`入口函数`开启不同模式：
+- `legacy` -- `ReactDOM.render(<App />, rootNode)`
+- `blocking` -- `ReactDOM.createBlockingRoot(rootNode).render(<App />)`
+- `concurrent` -- `ReactDOM.createRoot(rootNode).render(<App />)`
+
+> 你可以在[这里](https://zh-hans.reactjs.org/docs/concurrent-mode-adoption.html#why-so-many-modes)看到`React`团队解释为什么会有这么多模式
+
+虽然不同模式的`入口函数`不同，但是他们仅对`fiber.mode`变量产生影响，对我们在[流程概览](./reactdom.html#流程概览)中描述的流程并无影响。
+
 ## 总体流程
 React 16 总体流程大致如下：
 ![render-commit-process](~@/assets/posts/react-source-2steps-render/render-commit-process.png)

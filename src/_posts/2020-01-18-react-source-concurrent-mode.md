@@ -7,3 +7,216 @@ tags:
 author: ArtoriasChan
 location: Beijing  
 ---
+## 概览
+在[通过首次渲染看React两阶段渲染 - React的其他入口函数](/blog/2019/10/28/react-source-2steps-render/#react的其他入口函数)一文我们介绍了React当前的三种入口函数。日常开发主要使用的是Legacy Mode（通过ReactDOM.render创建）。
+
+从[React v17.0 RC 版本发布：没有新特性](https://zh-hans.reactjs.org/blog/2020/08/10/react-v17-rc.html)一文可以看到，v17.0没有包含新特性。究其原因，v17.0主要的工作在于源码内部对Concurrent Mode的支持。所以v17版本也被称为“垫脚石”版本。
+
+你可以从[官网 - Concurrent 模式介绍 (实验性)](https://zh-hans.reactjs.org/docs/concurrent-mode-intro.html)了解其基本概念。
+
+一句话概括：
+> `Concurrent` 模式是一组 `React` 的 `新功能` ，可帮助应用保持响应，并根据用户的设备 `性能` 和 `网速` 进行 `适当的调整` 。
+
+`Concurrent Mode` 是 `React` 过去2年 `重构Fiber架构` 的源动力，也是 `React` 未来的 `发展方向` 。
+
+可以预见，当v17 完美支持 `Concurrent Mode` 后，v18会迎来一大波基于 `Concurrent Mode` 的库。
+
+`底层基础架构` 决定了 `上层API` 的实现，接下来让我们了解下， `Concurrent Mode` 自底向上都包含哪些组成部分，能够发挥哪些能力？
+### fiber 架构 - 底层基础架构
+从 `设计理念` 我们了解到要实现 `Concurrent Mode` ，最关键的一点是：实现 `异步可中断的更新` 。
+
+基于这个前提， `React` 花费2年时间重构完成了 `Fiber架构` 。
+
+`Fiber架构` 的意义在于，他将 `单个组件` 作为 `工作单元` ，使 `以组件为粒度` 的 `异步可中断的更新` 成为可能。
+### Scheduler 调度 - 驱动力
+如果我们 `同步` 运行 `Fiber架构` （通过 `ReactDOM.render` ），则 `Fiber架构` 与 `重构前` 并无区别。
+
+但是当我们配合 `时间切片` ，就能根据 `宿主环境性能` ，为每个工作单元分配一个 `可运行时间` ，实现 `异步可中断的更新` 。
+
+于是，[scheduler](https://github.com/facebook/react/tree/master/packages/scheduler)（调度器）产生了。
+### lane 模型 - 运行策略
+到目前为止， `React` 可以控制更新在 `Fiber架构` 中运行/中断/继续运行。
+
+基于当前的架构，当一次更新在运行过程中被中断，过段时间再继续运行，这就是 `异步可中断的更新` 。
+
+当一次更新在运行过程中被中断，转而重新开始一次新的更新，我们可以说：后一次更新打断了前一次更新。
+
+这就是 `优先级` 的概念：后一次更新的 `优先级` 更高，他打断了正在进行的前一次更新。
+
+多个 `优先级` 之间如何互相 `打断` ？优先级能否 `升降` ？本次更新应该 `赋予` 什么优先级？
+
+这就需要一个模型控制不同 `优先级` 之间的关系与行为，于是 `lane模型` 诞生了。
+### 上层实现
+现在，我们可以说：
+
+从源码层面讲， `Concurrent Mode` 是一套可控的 `多优先级更新架构` 。
+
+那么基于该架构之上可以实现哪些有意思的功能？我们举几个例子：
+#### batchedUpdates
+
+如果我们在一次事件回调中触发 `多次更新` ，他们会 `被合并` 为一次更新进行处理。
+
+如下代码执行只会触发一次更新：
+```javascript
+onClick() {
+  this.setState({stateA: 1});
+  this.setState({stateB: false});
+  this.setState({stateA: 2});
+}
+```
+这种 `合并` 多个更新的 `优化方式` 被称为 `batchedUpdates` 。
+
+`batchedUpdates` 在很早的版本就存在了，不过之前的实现 `局限很多` （脱离当前上下文环境的更新不会被合并）。
+
+在 `Concurrent Mode` 中，是以 `优先级` 为依据对更新进行 `合并` 的，使用范围更广。
+#### Suspense
+[Suspense](https://zh-hans.reactjs.org/docs/concurrent-mode-suspense.html) 可以在组件请求数据时展示一个 `pending状态` ，请求成功后渲染数据。
+
+本质上讲 `Suspense` 内的组件子树比组件树的其他部分拥有 `更低的优先级` 。
+#### useDeferredValue
+[useDeferredValue](https://zh-hans.reactjs.org/docs/concurrent-mode-reference.html#usedeferredvalue) 返回一个 `延迟响应` 的值，该值可能 `延后` 的最长时间为timeoutMs。
+
+例子：
+```javascript
+const deferredValue = useDeferredValue(value, { timeoutMs: 2000 });
+```
+在 `useDeferredValue` 内部会调用 `useState` 并触发一次 `更新` 。
+
+这次更新的 `优先级很低` ，所以当前如果有正在进行中的更新，不会受 `useDeferredValue` 产生的更新影响。所以 `useDeferredValue` 能够返回延迟的值。
+
+当超过 `timeoutMs` 后 `useDeferredValue` 产生的 `更新还没进行` （由于优先级太低一直被打断），则会 `再触发` 一次 `高优先级更新` 。
+## Scheduler 原理与实现
+在[React 16.x 架构 - Scheduler（调度器）](/2019/10/19/react-source-architecture-and-concept/#scheduler-调度器) 一节我们介绍了Scheduler，他包含两个功能：
+* 时间切片
+* 优先级调度
+
+本节我们学习这个两个功能是如何在Scheduler中实现的。
+### 时间切片原理
+时间切片的本质是模拟实现[requestIdleCallback](https://developer.mozilla.org/zh-CN/docs/Web/API/Window/requestIdleCallback)。
+
+关于 `requestIdleCallback` 的详细介绍，可以看一下这篇博文：[requestIdleCallback-后台任务调度](/2019/06/08/requestidlecallback/)。
+
+除去“浏览器重排/重绘”，下图是浏览器一帧中可以用于执行JS的时机。
+![life-of-a-frame](~@assets/posts/react-source-concurrent-mode/life-of-a-frame.png)
+
+`requestIdleCallback` 是在 `浏览器重排/重绘` 后如果 `当前帧` 还有 `空余时间` 时被调用的。
+
+浏览器并 `没有提供` 其他API能够在同样的时机（ `浏览器重排/重绘` 后）调用以 `模拟` 其实现。
+
+唯一能精准控制调用时机的API是 `requestAnimationFrame` ，他能让我们在 `浏览器重排/重绘` 之前执行JS。
+
+这也是为什么我们通常用这个API实现 `JS动画` —— 这是浏览器 `渲染前` 的最后时机，所以动画能快速被渲染。
+
+所以，退而求其次， `Scheduler` 的时间切片功能是通过 `task(宏任务)` 实现的。
+
+最常见的 `task` 当属 `setTimeout` 了。但是有个 `task` 比 `setTimeout` 执行时机更 `靠前` ，那就是 [MessageChannel](https://developer.mozilla.org/zh-CN/docs/Web/API/MessageChannel)。
+
+所以 `Scheduler` 将需要被执行的 `回调函数` 作为 `MessageChannel` 的 `回调` 执行。如果当前宿主环境不支持 `MessageChannel` ，则降级使用 `setTimeout` API。
+
+`MessageChannel` 的实现如下：
+```javascript
+// packages/scheduler/src/forks/SchedulerHostConfig.default.js
+
+const channel = new MessageChannel();
+const port = channel.port2;
+channel.port1.onmessage = performWorkUntilDeadline;
+
+requestHostCallback = function(callback) {
+  scheduledHostCallback = callback;
+  if (!isMessageLoopRunning) {
+    isMessageLoopRunning = true;
+    port.postMessage(null);
+  }
+};
+```
+`setTimeout` 的实现如下：
+```javascript {}
+// packages/scheduler/src/forks/SchedulerHostConfig.default.js
+
+if (
+  typeof window === 'undefined' ||
+  typeof MessageChannel !== 'function'
+) {
+  let _callback = null;
+  let _timeoutID = null;
+  const _flushCallback = function() {
+    if (_callback !== null) {
+      try {
+        const currentTime = getCurrentTime();
+        const hasRemainingTime = true;
+        _callback(hasRemainingTime, currentTime);
+        _callback = null;
+      } catch (e) {
+        setTimeout(_flushCallback, 0);
+        throw e;
+      }
+    }
+  };
+  requestHostCallback = function(cb) {
+    if (_callback !== null) {
+      // Protect against re-entrancy.
+      setTimeout(requestHostCallback, 0, cb);
+    } else {
+      _callback = cb;
+      setTimeout(_flushCallback, 0);
+    }
+  };
+  // ...
+}
+```
+在 `React` 的 `render阶段` ，开启 `Concurrent Mode` 时，每次遍历前，都会通过 `Scheduler` 提供的 `shouldYield` 函数判断是否需要 `中断` 遍历，使浏览器有时间渲染：
+```javascript {3}
+function workLoopConcurrent() {
+  // Perform work until Scheduler asks us to yield
+  while (workInProgress !== null && !shouldYield()) {
+    performUnitOfWork(workInProgress);
+  }
+}
+```
+是否中断的 `依据` ，最重要的一点便是每个任务的 `剩余时间` 是否用完。
+
+在 `Schdeduler` 中，为任务分配的 `初始剩余时间` 为 `5ms` 。
+```javascript {7}
+// packages/scheduler/src/forks/SchedulerHostConfig.default.js
+
+// Scheduler periodically yields in case there is other work on the main
+// thread, like user events. By default, it yields multiple times per frame.
+// It does not attempt to align with frame boundaries, since most tasks don't
+// need to be frame aligned; for those that do, use requestAnimationFrame.
+let yieldInterval = 5;
+let deadline = 0;
+```
+随着应用运行，会通过 `fps` 动态调整分配给任务的 `可执行时间` 。
+```javascript {4,12-14}
+// packages/scheduler/src/forks/SchedulerHostConfig.default.js
+
+forceFrameRate = function(fps) {
+  if (fps < 0 || fps > 125) {
+    // Using console['error'] to evade Babel and ESLint
+    console['error'](
+      'forceFrameRate takes a positive int between 0 and 125, ' +
+        'forcing frame rates higher than 125 fps is not supported',
+    );
+    return;
+  }
+  if (fps > 0) {
+    yieldInterval = Math.floor(1000 / fps);
+  } else {
+    // reset the framerate
+    yieldInterval = 5;
+  }
+};
+```
+这也解释了为什么启用 `Concurrent Mode` 后每个任务的执行时间大体都是多于5ms的一小段时间：每个时间切片被设定为5ms，任务本身再执行一小段时间，所以整体时间是多于5ms的时间。、
+
+那么当 `shouldYield` 返回值为 `true` ，以至于 `performUnitOfWork` 被 `中断` 后是如何 `重新启动` 的呢？我们会在之后进行解析。
+### 优先级调度
+### 优先级的意义
+### 不同优先级任务的排序
+### 总结
+## lane 模型
+### 表示优先级的不同
+### 表示“批”的概念
+### 方便进行优先级相关计算
+### 总结
+## 总结
