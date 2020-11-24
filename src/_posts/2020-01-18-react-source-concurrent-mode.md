@@ -211,9 +211,330 @@ forceFrameRate = function(fps) {
 
 那么当 `shouldYield` 返回值为 `true` ，以至于 `performUnitOfWork` 被 `中断` 后是如何 `重新启动` 的呢？我们会在之后进行解析。
 ### 优先级调度
+首先我们来了解 `优先级` 的来源。需要明确的一点是， `Scheduler` 是独立于 `React` 的包，所以他的 `优先级` 也是独立于 `React` 的 `优先级` 的。
+
+`Scheduler` 对外暴露了一个方法 `unstable_runWithPriority` 。
+
+这个方法接受一个 `优先级` 与一个 `回调函数` ，在 `回调函数` 内部调用获取 `优先级` 的方法都会取得第一个参数对应的 `优先级` ：
+```javascript {5-9}
+// packages/scheduler/src/Scheduler.js
+
+function unstable_runWithPriority(priorityLevel, eventHandler) {
+  switch (priorityLevel) {
+    case ImmediatePriority:
+    case UserBlockingPriority:
+    case NormalPriority:
+    case LowPriority:
+    case IdlePriority:
+      break;
+    default:
+      priorityLevel = NormalPriority;
+  }
+
+  var previousPriorityLevel = currentPriorityLevel;
+  currentPriorityLevel = priorityLevel;
+
+  try {
+    return eventHandler();
+  } finally {
+    currentPriorityLevel = previousPriorityLevel;
+  }
+}
+```
+可以看到， `Scheduler` 内部存在 `5种优先级` 。
+
+在 `React` 内部凡是涉及到 `优先级调度` 的地方，都会使用 `unstable_runWithPriority` 函数。
+
+比如，我们知道 `commit阶段` 是 `同步执行` 的。可以看到， `commit阶段` 的起点 `commitRoot` 函数的 `优先级` 为 `ImmediateSchedulerPriority` 。
+
+`ImmediateSchedulerPriority` 即 `ImmediatePriority` 的别名，为`最高`优先级，会立即执行。
+```javascript {5,10-13}
+// packages/react-reconciler/src/ReactFiberWorkLoop.old.js
+
+import {
+  // ...
+  ImmediatePriority as ImmediateSchedulerPriority,
+} from './SchedulerWithReactIntegration.old';
+
+function commitRoot(root) {
+  const renderPriorityLevel = getCurrentPriorityLevel();
+  runWithPriority(
+    ImmediateSchedulerPriority,
+    commitRootImpl.bind(null, root, renderPriorityLevel),
+  );
+  return null;
+}
+```
 ### 优先级的意义
+`Scheduler` 对外暴露最重要的方法便是 `unstable_scheduleCallback` 函数。该方法用于以某个优先级 `注册` 回调函数。
+```javascript {12-19,26,42}
+function unstable_scheduleCallback(priorityLevel, callback, options) {
+  var currentTime = getCurrentTime();
+  // 根据当前时间和 options.delay 获取开始时间
+  var startTime;
+  // ...
+  // 根据优先级 priorityLevel 获取该任务的 timeout
+  var timeout;
+  // ...
+  // 计算过期时间
+  var expirationTime = startTime + timeout;
+  // 创建任务
+  var newTask = {
+    id: taskIdCounter++,
+    callback,
+    priorityLevel,
+    startTime,
+    expirationTime,
+    sortIndex: -1,
+  };
+  // ...
+  // 根据任务类型选择放入的队列
+  if (startTime > currentTime) {
+    // 未过期任务
+    // sortIndex为该任务的开始时间
+    newTask.sortIndex = startTime;
+    push(timerQueue, newTask);
+    // taskQueue 为空并且 当前任务为 timerQueue 中第一个任务时
+    if (peek(taskQueue) === null && newTask === peek(timerQueue)) {
+      if (isHostTimeoutScheduled) {
+        // 取消当前运行的 timeout 任务
+        cancelHostTimeout();
+      } else {
+        isHostTimeoutScheduled = true;
+      }
+      // 调度 timeout 任务
+      requestHostTimeout(handleTimeout, startTime - currentTime);
+    }
+  } else {
+    // 已过期任务
+    // sortIndex为该任务的过期时间
+    newTask.sortIndex = expirationTime; 
+    push(taskQueue, newTask);
+    // ...
+  }
+
+  return newTask;
+}
+```
+比如在 `React` 中，之前讲过在 `commit阶段` 的 `beforeMutation阶段` 会调度 `useEffect` 的回调：
+```javascript {5-8}
+// packages/react-reconciler/src/ReactFiberWorkLoop.old.js -> commitBeforeMutationEffects function
+
+if (!rootDoesHavePassiveEffects) {
+  rootDoesHavePassiveEffects = true;
+  scheduleCallback(NormalSchedulerPriority, () => {
+    flushPassiveEffects();
+    return null;
+  });
+}
+```
+这里的回调便是通过 `scheduleCallback` 调度的，优先级为 `NormalSchedulerPriority` ，即 `NormalPriority` 。
+
+不同优先级意味着什么？不同 `优先级` 意味着不同 `时长` 的 `任务过期时间` ：
+```javascript
+// packages/scheduler/src/Scheduler.js -> unstable_scheduleCallback function
+
+var timeout;
+switch (priorityLevel) {
+  case ImmediatePriority:
+    timeout = IMMEDIATE_PRIORITY_TIMEOUT;
+    break;
+  case UserBlockingPriority:
+    timeout = USER_BLOCKING_PRIORITY_TIMEOUT;
+    break;
+  case IdlePriority:
+    timeout = IDLE_PRIORITY_TIMEOUT;
+    break;
+  case LowPriority:
+    timeout = LOW_PRIORITY_TIMEOUT;
+    break;
+  case NormalPriority:
+  default:
+    timeout = NORMAL_PRIORITY_TIMEOUT;
+    break;
+}
+```
+其中各过期时间具体的值如下：
+```javascript
+// packages/scheduler/src/Scheduler.js
+
+// Max 31 bit integer. The max integer size in V8 for 32-bit systems.
+// Math.pow(2, 30) - 1
+// 0b111111111111111111111111111111
+var maxSigned31BitInt = 1073741823;
+
+// Times out immediately
+var IMMEDIATE_PRIORITY_TIMEOUT = -1;
+// Eventually times out
+var USER_BLOCKING_PRIORITY_TIMEOUT = 250;
+var NORMAL_PRIORITY_TIMEOUT = 5000;
+var LOW_PRIORITY_TIMEOUT = 10000;
+// Never times out
+var IDLE_PRIORITY_TIMEOUT = maxSigned31BitInt;
+```
+可以看到，如果一个任务的优先级是 `ImmediatePriority` ，对应 `IMMEDIATE_PRIORITY_TIMEOUT` 为 -`1` ，那么：
+```javascript
+var expirationTime = startTime + (-1);
+```
+则该任务的过期时间比当前时间还短，表示他已经过期了，需要立即被执行。
 ### 不同优先级任务的排序
-### 总结
+
+我们已经知道 `优先级` 意味着任务的 `过期时间` 。设想一个大型React项目，在某一刻，存在很多不同 `优先级` 的任务，对应不同的 `过期时间` 。
+
+我们可以将这些 `任务` 按 `是否过期` 分为：
+* 已过期任务
+* 未过期任务
+
+所以， `Scheduler` 存在两个队列：
+* timerQueue：保存未过期任务
+* taskQueue：保存已过期任务
+
+每当有新的 `未过期` 任务被注册，我们将其插入 `timerQueue` 并重新排列 `timerQueue` 中任务的顺序。
+
+当 `timerQueue` 中有任务 `过期` ，我们将其取出并加入 `taskQueue` 。
+
+取出 `taskQueue` 中最早过期的任务并执行他。
+
+为了能在 `O(1)` 复杂度找到两个队列中 `时间最早` 的那个任务， `Scheduler` 使用 `小顶堆` 实现了 `优先级队列` 。
+```javascript
+// packages/scheduler/src/SchedulerMinHeap.js
+
+type Heap = Array<Node>;
+type Node = {|
+  id: number,
+  sortIndex: number,
+|};
+
+export function push(heap: Heap, node: Node): void {
+  const index = heap.length;
+  heap.push(node);
+  siftUp(heap, node, index);
+}
+
+export function peek(heap: Heap): Node | null {
+  const first = heap[0];
+  return first === undefined ? null : first;
+}
+
+export function pop(heap: Heap): Node | null {
+  const first = heap[0];
+  if (first !== undefined) {
+    const last = heap.pop();
+    if (last !== first) {
+      heap[0] = last;
+      siftDown(heap, last, 0);
+    }
+    return first;
+  } else {
+    return null;
+  }
+}
+
+function siftUp(heap, node, i) {
+  let index = i;
+  while (true) {
+    const parentIndex = (index - 1) >>> 1;
+    const parent = heap[parentIndex];
+    if (parent !== undefined && compare(parent, node) > 0) {
+      // The parent is larger. Swap positions.
+      heap[parentIndex] = node;
+      heap[index] = parent;
+      index = parentIndex;
+    } else {
+      // The parent is smaller. Exit.
+      return;
+    }
+  }
+}
+
+function siftDown(heap, node, i) {
+  let index = i;
+  const length = heap.length;
+  while (index < length) {
+    const leftIndex = (index + 1) * 2 - 1;
+    const left = heap[leftIndex];
+    const rightIndex = leftIndex + 1;
+    const right = heap[rightIndex];
+
+    // If the left or right node is smaller, swap with the smaller of those.
+    if (left !== undefined && compare(left, node) < 0) {
+      if (right !== undefined && compare(right, left) < 0) {
+        heap[index] = right;
+        heap[rightIndex] = node;
+        index = rightIndex;
+      } else {
+        heap[index] = left;
+        heap[leftIndex] = node;
+        index = leftIndex;
+      }
+    } else if (right !== undefined && compare(right, node) < 0) {
+      heap[index] = right;
+      heap[rightIndex] = node;
+      index = rightIndex;
+    } else {
+      // Neither child is smaller. Exit.
+      return;
+    }
+  }
+}
+
+function compare(a, b) {
+  // Compare sort index first, then task id.
+  const diff = a.sortIndex - b.sortIndex;
+  return diff !== 0 ? diff : a.id - b.id;
+}
+```
+至此，我们了解了 `Scheduler` 的实现。现在可以回答介绍 时间切片 时提到的问题：
+
+> 那么当 `shouldYield` 为 `true` ，以至于 `performUnitOfWork` 被中断后是如何 重新启动 的呢？
+在 `ensureRootIsScheduled` 函数中，会使用 `scheduleCallback` 生成 `task` ，并放入 `root.callbackNode` 中：
+```javascript
+// packages/react-reconciler/src/ReactFiberWorkLoop.old.js -> ensureRootIsScheduled function
+
+newCallbackNode = scheduleCallback(
+  schedulerPriorityLevel,
+  performConcurrentWorkOnRoot.bind(null, root),
+);
+// ...
+root.callbackPriority = newCallbackPriority;
+root.callbackNode = newCallbackNode;
+```
+在“取出taskQueue中最早过期的任务并执行他”这一步中有如下关键步骤：
+```javascript
+// packages/scheduler/src/Scheduler.js -> workLoop function
+
+const continuationCallback = callback(didUserCallbackTimeout);
+currentTime = getCurrentTime();
+if (typeof continuationCallback === 'function') {
+  currentTask.callback = continuationCallback;
+  markTaskYield(currentTask, currentTime);
+} else {
+  if (enableProfiling) {
+    markTaskCompleted(currentTask, currentTime);
+    currentTask.isQueued = false;
+  }
+  if (currentTask === peek(taskQueue)) {
+    pop(taskQueue);
+  }
+}
+advanceTimers(currentTime);
+```
+当注册的 回调函数 执行后的返回值 `continuationCallback` 为 `function` ，会将 `continuationCallback` 作为当前任务的回调函数。
+
+如果 `返回值` 不是 `function` ，则将当前被执行的任务 `清除` 出 `taskQueue` 。
+
+`render阶段` 被调度的函数为 `performConcurrentWorkOnRoot` ，在该函数末尾有这样一段代码：
+```javascript {6}
+// packages/react-reconciler/src/ReactFiberWorkLoop.old.js -> performConcurrentWorkOnRoot function
+
+if (root.callbackNode === originalCallbackNode) {
+  // The task node scheduled for this root is the same one that's
+  // currently executed. Need to return a continuation.
+  return performConcurrentWorkOnRoot.bind(null, root);
+}
+```
+可以看到，在满足一定条件时，该函数会将自己作为返回值。
+![performConcurrentWorkOnRoot](~@assets/posts/react-source-concurrent-mode/performConcurrentWorkOnRoot.png)
 ## lane 模型
 ### 表示优先级的不同
 ### 表示“批”的概念
