@@ -150,7 +150,7 @@ module.exports = (options, context, api) => {
           },
           {
             type: "mail",
-            link: "dalecracker@gmail.com"
+            link: "mailto:dalecracker@gmail.com"
           }
         ],
         copyright: [

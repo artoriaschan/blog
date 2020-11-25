@@ -1,7 +1,7 @@
 ---
 title: React 16.x 源码解读(五)
 subtitle: 船新的版本，船新的模式 —— Concurrent Mode
-date: 20202-01-18
+date: 2020-01-18
 tags:
   - react
 author: ArtoriasChan
@@ -536,8 +536,110 @@ if (root.callbackNode === originalCallbackNode) {
 可以看到，在满足一定条件时，该函数会将自己作为返回值。
 ![performConcurrentWorkOnRoot](~@assets/posts/react-source-concurrent-mode/performConcurrentWorkOnRoot.png)
 ## lane 模型
+上一节我们提到 `Scheduler` 与 `React` 是两套 `优先级` 机制。在 `React` 中，存在多种使用不同 `优先级` 的情况，比如：
+> 注：以下例子皆为 `Concurrent Mode` 开启情况
+* `过期任务` 或者 `同步任务` 使用 `同步优先级`
+* `用户交互` 产生的 `更新` （比如点击事件）使用 `高优先级`
+* `网络请求` 产生的更新使用 `一般优先级`
+* `Suspense` 使用 `低优先级` 
+
+`React` 需要设计一套满足如下需要的优先级机制：
+* 可以表示 `优先级` 的 不同
+* 可能同时存在几个 `同优先级` 的 `更新` ，所以还得能表示 `批` 的概念
+* 方便进行 `优先级` 相关 `计算`
+
+为了满足如上需求，React设计了lane模型。接下来我们来看lane模型如何满足以上3个条件
 ### 表示优先级的不同
+> 想象你身处赛车场。不同的赛车疾驰在不同的赛道。内圈的赛道总长度更短，外圈更长。某几个临近的赛道的长度可以看作差不多长。
+
+lane模型借鉴了同样的概念，使用31位的二进制表示31条赛道，位数越小的赛道优先级越高，某些相邻的赛道拥有相同优先级。如下：
+```javascript
+// packages/react-reconciler/src/ReactFiberLane.js
+
+export const NoLanes: Lanes = /*                        */ 0b0000000000000000000000000000000;
+export const NoLane: Lane = /*                          */ 0b0000000000000000000000000000000;
+
+export const SyncLane: Lane = /*                        */ 0b0000000000000000000000000000001;
+export const SyncBatchedLane: Lane = /*                 */ 0b0000000000000000000000000000010;
+
+export const InputDiscreteHydrationLane: Lane = /*      */ 0b0000000000000000000000000000100;
+const InputDiscreteLanes: Lanes = /*                    */ 0b0000000000000000000000000011000;
+
+const InputContinuousHydrationLane: Lane = /*           */ 0b0000000000000000000000000100000;
+const InputContinuousLanes: Lanes = /*                  */ 0b0000000000000000000000011000000;
+
+export const DefaultHydrationLane: Lane = /*            */ 0b0000000000000000000000100000000;
+export const DefaultLanes: Lanes = /*                   */ 0b0000000000000000000111000000000;
+
+const TransitionHydrationLane: Lane = /*                */ 0b0000000000000000001000000000000;
+const TransitionLanes: Lanes = /*                       */ 0b0000000001111111110000000000000;
+
+const RetryLanes: Lanes = /*                            */ 0b0000011110000000000000000000000;
+
+export const SomeRetryLane: Lanes = /*                  */ 0b0000010000000000000000000000000;
+
+export const SelectiveHydrationLane: Lane = /*          */ 0b0000100000000000000000000000000;
+
+const NonIdleLanes = /*                                 */ 0b0000111111111111111111111111111;
+
+export const IdleHydrationLane: Lane = /*               */ 0b0001000000000000000000000000000;
+const IdleLanes: Lanes = /*                             */ 0b0110000000000000000000000000000;
+
+export const OffscreenLane: Lane = /*                   */ 0b1000000000000000000000000000000;
+```
+其中，同步优先级占用的赛道为第一位：
+```javascript
+export const SyncLane: Lane = /*                        */ 0b0000000000000000000000000000001;
+```
+从SyncLane往下一直到SelectiveHydrationLane，赛道的优先级逐步降低。
 ### 表示“批”的概念
+可以看到其中有几个变量占用了几条赛道，比如：
+```javascript
+const InputDiscreteLanes: Lanes = /*                    */ 0b0000000000000000000000000011000;
+const InputContinuousLanes: Lanes = /*                  */ 0b0000000000000000000000011000000;
+export const DefaultLanes: Lanes = /*                   */ 0b0000000000000000000111000000000;
+const TransitionLanes: Lanes = /*                       */ 0b0000000001111111110000000000000;
+const RetryLanes: Lanes = /*                            */ 0b0000011110000000000000000000000;
+const NonIdleLanes = /*                                 */ 0b0000111111111111111111111111111;
+const IdleLanes: Lanes = /*                             */ 0b0110000000000000000000000000000;
+```
+这就是 `批` 的概念，被称作 `lanes` （区别于优先级的 `lane` ）。
+
+其中 `InputDiscreteLanes` 是“用户交互”触发更新会拥有的优先级范围。
+
+`DefaultLanes` 是“请求数据返回后触发更新”拥有的优先级范围。
+
+`TransitionLanes` 是 `Suspense` 、 `useTransition` 、 `useDeferredValue` 拥有的优先级范围。
+
+这其中有个细节，越 `低优先级` 的 `lanes` 占用的位 `越多` 。比如 `InputDiscreteLanes` 占了2个位， `TransitionLanes` 占了9个位。
+
+原因在于：越 `低优先级` 的更新越容易 `被打断` ，导致积压下来，所以需要更多的位。相反，最高优的同步更新的 `SyncLane` 不需要多余的 `lanes` 。
 ### 方便进行优先级相关计算
-### 总结
+既然 `lane` 对应了 `二进制` 的位，那么 `优先级` 相关计算其实就是 `位运算` 。
+
+比如，计算a、b两个lane是否存在 `交集` ，只需要判断a与b `按位与` 的结果是否为0：
+```javascript
+export function includesSomeLane(a: Lanes | Lane, b: Lanes | Lane) {
+  return (a & b) !== NoLanes;
+}
+```
+计算 `b` 这个 `lanes` 是否是 `a` 对应的 `lanes` 的 `子集` ，只需要判断a与b `按位与` 的结果是否为 `b` ：
+```javascript
+export function isSubsetOfLanes(set: Lanes, subset: Lanes | Lane) {
+  return (set & subset) === subset;
+}
+```
+将两个 `lane` 或 `lanes` 的位 `合并` 只需要执行 `按位或` 操作：
+```javascript
+export function mergeLanes(a: Lanes | Lane, b: Lanes | Lane): Lanes {
+  return a | b;
+}
+```
+从 `set` 对应 `lanes` 中移除 `subset` 对应 `lane` （或 `lanes` ），只需要对 `subset` 的 `lane` （或 `lanes` ）执行 `按位非` ，结果再对 `set` 执行 `按位与` 。
+```javascript
+export function removeLanes(set: Lanes, subset: Lanes | Lane): Lanes {
+  return set & ~subset;
+}
+```
 ## 总结
+👻
