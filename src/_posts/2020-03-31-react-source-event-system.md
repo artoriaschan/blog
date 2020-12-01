@@ -1,5 +1,5 @@
 ---
-title: ⚛ React 16.x 源码解读(七)
+title: ⚛ React 源码解读(七)
 subtitle: 合成事件系统 - Synthetic Event System
 date: 2020-03-31
 tags:
@@ -27,6 +27,7 @@ ReactDOM.render(<App />, rootNode);
 那么我们来分析一下 `React` 中的 `合成事件` 系统。
 ## 系统结构
 ### createSyntheticEvent
+`createSyntheticEvent` 函数为 `合成事件对象` 的构造 `工厂函数` ，通过传入的 `Interface` 来返回不同的构造函数。
 ```javascript
 // packages/react-dom/src/events/SyntheticEvent.js
 
@@ -105,6 +106,39 @@ function createSyntheticEvent(Interface: EventInterfaceType) {
   return SyntheticBaseEvent;
 }
 ```
+通过 `createSyntheticEvent` 构造工厂函数， `React` 构造了 `13` 个合成事件对象构造函数，分别对应不同类型的事件：
+```javascript
+// packages/react-dom/src/events/SyntheticEvent.js
+
+export const SyntheticEvent = createSyntheticEvent(EventInterface);
+export const SyntheticUIEvent = createSyntheticEvent(UIEventInterface);
+export const SyntheticMouseEvent = createSyntheticEvent(MouseEventInterface);
+export const SyntheticDragEvent = createSyntheticEvent(DragEventInterface);
+export const SyntheticFocusEvent = createSyntheticEvent(FocusEventInterface);
+export const SyntheticAnimationEvent = createSyntheticEvent(
+  AnimationEventInterface,
+);
+export const SyntheticClipboardEvent = createSyntheticEvent(
+  ClipboardEventInterface,
+);
+export const SyntheticCompositionEvent = createSyntheticEvent(
+  CompositionEventInterface,
+);
+export const SyntheticKeyboardEvent = createSyntheticEvent(
+  KeyboardEventInterface,
+);
+export const SyntheticPointerEvent = createSyntheticEvent(
+  PointerEventInterface,
+);
+export const SyntheticTouchEvent = createSyntheticEvent(TouchEventInterface);
+export const SyntheticTransitionEvent = createSyntheticEvent(
+  TransitionEventInterface,
+);
+export const SyntheticWheelEvent = createSyntheticEvent(WheelEventInterface);
+```
+所有的合成事件构造函数都是在插件的 `extractEvents` 函数中使用，并创建合成事件实例。并将其放入 `dispatchQueue` 中去执行。
+
+最终合成事件实例会作为参数传入到事件监听函数 `listener` 中。
 ### 事件插件
 * `SimpleEventPlugin`
 * `EnterLeaveEventPlugin`

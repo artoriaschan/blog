@@ -1,5 +1,5 @@
 ---
-title: ⚛ React 16.x 源码解读(三)
+title: ⚛ React 源码解读(三)
 subtitle: 理解状态更新的流程
 date: 2019-11-20
 tags:

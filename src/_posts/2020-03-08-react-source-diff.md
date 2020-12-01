@@ -1,5 +1,5 @@
 ---
-title: ⚛ React 16.x 源码解读(六)
+title: ⚛ React 源码解读(六)
 subtitle: Diff in React
 date: 2020-03-08
 tags:
