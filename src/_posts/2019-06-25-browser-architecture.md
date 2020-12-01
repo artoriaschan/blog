@@ -2,7 +2,9 @@
 title: 宏观浏览器架构
 date: 2019-06-25
 tags:
-  - 浏览器
+  - browser
+  - browser architecture
+  - interview
 author: ArtoriasChan
 location: Beijing  
 ---

@@ -2,7 +2,7 @@
 title: 普吉岛团建
 date: 2018-7-10
 tags:
-  - 照片
+  - photo
 author: ArtoriasChan
 location: Beijing
 ---

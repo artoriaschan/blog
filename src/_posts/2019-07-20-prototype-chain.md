@@ -2,9 +2,8 @@
 title: 原型与原型链
 date: 2019-07-20
 tags:
-  - 原型
-  - 原型链
   - javascript
+  - prototype chain
 author: ArtoriasChan
 location: Beijing  
 ---

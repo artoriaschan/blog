@@ -3,7 +3,7 @@ title: Vue的观察者模式
 date: 2019-05-26
 tags:
   - vue
-  - 设计模式
+  - design patterns
 author: ArtoriasChan
 location: Beijing  
 ---

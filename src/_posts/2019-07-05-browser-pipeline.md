@@ -2,8 +2,9 @@
 title: 浏览器渲染流程
 date: 2019-07-05
 tags:
-  - 浏览器
-  - 渲染
+  - browser
+  - browser render
+  - interview
 author: ArtoriasChan
 location: Beijing  
 ---

@@ -2,8 +2,9 @@
 title: 浏览器缓存机制
 date: 2019-06-30
 tags:
-  - 浏览器
-  - 浏览器缓存
+  - browser
+  - browser cache
+  - interview
 author: ArtoriasChan
 location: Beijing  
 ---
