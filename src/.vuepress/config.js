@@ -7,13 +7,14 @@ module.exports = (options, context, api) => {
     theme: "@vuepress/blog",
     plugins: [
       require('./plugins/fancybox'),
+      '@vuepress/back-to-top',
+      ["vuepress-plugin-mathjax", {}],
       [
         '@vuepress/google-analytics',
         {
           'ga': 'G-LRH2QC3YT9'
         }
       ],
-      '@vuepress/back-to-top',
       [
         'vuepress-plugin-container',
         {
@@ -167,6 +168,8 @@ module.exports = (options, context, api) => {
       "@": path.resolve(__dirname, "../")
     },
     markdown: {
+      // config: md => {
+      // },
       externalLinks: { target: '_blank', rel: 'noopener noreferrer' },
       lineNumbers: true
     }
