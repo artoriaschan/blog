@@ -167,6 +167,7 @@ module.exports = (options, context, api) => {
       "@": path.resolve(__dirname, "../")
     },
     markdown: {
+      externalLinks: { target: '_blank', rel: 'noopener noreferrer' },
       lineNumbers: true
     }
   };
