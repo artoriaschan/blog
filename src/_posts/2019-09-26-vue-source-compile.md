@@ -1317,7 +1317,7 @@ function handleStartTag (match) {
 }
 ```
 handleStartTag 的核心逻辑很简单：
-* 先判断开始标签是否是一元标签，类似 <img>、<br/> 这样
+* 先判断开始标签是否是一元标签，类似 `<img>`、`<br/>` 这样
 * 接着对 match.attrs 遍历并做了一些处理
 * 最后判断如果非一元标签，则往 stack 里 push 一个对象，并且把 tagName 赋值给 lastTag
 

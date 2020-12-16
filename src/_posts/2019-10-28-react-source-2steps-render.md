@@ -164,6 +164,7 @@ handleButtonClick = () => {
 该表格为官网博文 《使用 Concurrent 模式（实验性）》中，[点此处](https://zh-hans.reactjs.org/docs/concurrent-mode-adoption.html#why-so-many-modes) 查看原文
 :::
 *：`legacy`模式在合成事件中有自动批处理的功能，但仅限于一个浏览器任务。非`React`事件想使用这个功能必须使用 `unstable_batchedUpdates`。在`blocking`模式和`concurrent`模式下，所有的`setState`在默认情况下都是批处理的。
+
 **：会在开发中发出警告。
 
 模式的变化影响整个应用的工作方式，所以无法只针对某个组件开启不同模式。
@@ -215,7 +216,7 @@ ReactDOM.render(<App />, document.getElementById('root'));
 ```
 ## Render 阶段
 render 阶段开始于 `performSyncWorkOnRoot` 或 `performConcurrentWorkOnRoot` 方法的调用。这取决于本次更新是同步更新还是异步更新。
-```javascript {19,38}
+```javascript {19,28}
 // packages/react-reconciler/src/ReactFiberWorkLoop.old.js
 
 // This is the entry point for synchronous tasks that don't go
@@ -232,25 +233,15 @@ function performSyncWorkOnRoot(root) {
   ) {
     // ...
   } else {
-    // 对于首次渲染，workInProgressRoot 为 null，最终会走到这个分支执行 renderRootSync 函数
+    // 对于首次渲染，workInProgressRoot 为 null
+    // 最终会走到这个分支执行 renderRootSync 函数
     lanes = getNextLanes(root, NoLanes);
     exitStatus = renderRootSync(root, lanes);
   }
 
   if (root.tag !== LegacyRoot && exitStatus === RootErrored) {
     executionContext |= RetryAfterError;
-
-    // If an error occurred during hydration,
-    // discard server response and fall back to client side render.
-    if (root.hydrate) {
-      root.hydrate = false;
-      clearContainer(root.containerInfo);
-    }
-
-    // If something threw an error, try rendering one more time. We'll render
-    // synchronously to block concurrent data mutations, and we'll includes
-    // all pending updates are included. If it still fails after the second
-    // attempt, we'll give up and commit the resulting tree.
+    // ...
     lanes = getLanesToRetrySynchronouslyOnError(root);
     if (lanes !== NoLanes) {
       exitStatus = renderRootSync(root, lanes);
@@ -377,7 +368,7 @@ function performUnitOfWork(unitOfWork: Fiber): void {
   ReactCurrentOwner.current = null;
 }
 ```
-`performUnitOfWork` 函数的逻辑很简单，尽管有几个判断，但大致逻辑就是调用 beginWork 函数 获得 next Fiber，若 next Fiber 为 null，则调用 completeUnitOfWork 函数结束当前任务；若 next 不为空，则将 next 赋值给 workInProgress，以便使 workLoopSync 函数中循环的条件继续成立。
+`performUnitOfWork` 函数的逻辑很简单，尽管有几个判断，但大致逻辑就是调用 `beginWork` 函数获得 `next Fiber`，若 `next Fiber` 为 `null` ，则调用 `completeUnitOfWork` 函数结束当前任务；若 `next` 不为空，则将 `next` 赋值给 `workInProgress` ，以便使 `workLoopSync` 函数中循环的条件继续成立。
 
 其中的 `(unitOfWork.mode & ProfileMode) !== NoMode` 判断条件则是需要我们来理解 Fiber 中的 mode 这个枚举属性代表什么意思及所有的枚举值有哪些：
 ```javascript
@@ -444,11 +435,11 @@ export type Fiber = {|
 ```
 所以以后遇到相关的代码可以先忽略，只是和性能分析相关的代码。那么我们继续分析主流程。
 ### beginWork
-首先从rootFiber开始向下深度优先遍历。为遍历到的每个 Fiber 节点调用 `beginWork` 方法。
+首先从 `rootFiber` 开始向下深度优先遍历。为遍历到的每个 Fiber 节点调用 `beginWork` 方法。
 
-该方法会根据传入的 Fiber 节点创建子 Fiber 节点，并将这两个 Fiber 节点连接起来。
+该方法会根据传入的 `Fiber 节点` 创建 `子Fiber 节点` ，并将这两个 `Fiber 节点` 连接起来。
 
-完整的 `beginWork` 函数的代码有400多行，这里我们只讲主干部分。首先我们看一下 beginWork 的定义：
+完整的 `beginWork` 函数的代码有400多行，这里我们只讲主干部分。首先我们看一下 `beginWork` 的定义：
 ```javascript
 function beginWork(
   current: Fiber | null,
@@ -459,19 +450,19 @@ function beginWork(
 }
 ```
 其中传参：
-* current：当前组件对应的Fiber节点在上一次更新时的Fiber节点，即 workInProgress.alternate
-* workInProgress：当前组件对应的Fiber节点
-* renderLanes：优先级相关，在讲解Scheduler时再讲解
+* **current** ：当前组件对应的Fiber节点在上一次更新时的Fiber节点，即 workInProgress.alternate
+* **workInProgress** ：当前组件对应的Fiber节点
+* **renderLanes** ：优先级相关，在讲解Scheduler时再讲解
 
-从双缓存机制一节我们知道，除 rootFiber 以外， 组件 mount 时，由于是首次渲染，是不存在当前组件对应的 Fiber 节点在上一次更新时的 Fiber 节点，即 mount 时 `current === null`。
+从双缓存机制一节我们知道，除 `rootFiber` 以外， 组件 `mount` 时，由于是首次渲染，是不存在当前组件对应的 `Fiber` 节点在上一次更新时的 `Fiber` 节点，即 mount 时 `current === null`。
 
-组件 update 时，由于之前已经 mount 过，所以 `current !== null`。
+组件 `update` 时，由于之前已经 `s` 过，所以 `current !== null`。
 
-所以我们可以通过current === null ?来区分组件是处于mount还是update。
+所以我们可以通过 `current === null` 来区分组件是处于 `mount` 还是 `update` 。
 
 基于此原因，`beginWork` 函数的工作可以分为两部分：
-* update 时：如果 current 存在，在满足一定条件时可以复用 current 节点，这样就能克隆 `current.child` 作为 `workInProgress.child` ，而不需要新建 `workInProgress.child`。
-* mount 时：除 fiberRootNode 以外，`current === null`。会根据 fiber.tag 不同，创建不同类型的子Fiber节点
+* `update` 时：如果 `current` 存在，在满足一定条件时可以复用 `current` 节点，这样就能克隆 `current.child` 作为 `workInProgress.child` ，而不需要新建 `workInProgress.child`。
+* `mount` 时：除 `fiberRootNode` 以外，`current === null`。会根据 `fiber.tag` 不同，创建不同类型的 `子Fiber节点`
 ```javascript
 function beginWork(
   current: Fiber | null,
@@ -545,7 +536,7 @@ function beginWork(
   }
 }
 ```
-我们这里先只看 `current === null` 的情况，之后则是根据 workInProgress.tag 创建相应的 Fiber 节点。首先我们先了解一共有哪些 Fiber 节点类型。
+我们这里先只看 `current === null` 的情况，之后则是根据 `workInProgress.tag` 创建相应的 `Fiber 节点` 。首先我们先了解一共有哪些 `Fiber 节点类型` 。
 ```javascript
 // packages/react-reconciler/src/ReactWorkTags.js
 
@@ -577,7 +568,7 @@ export const LegacyHiddenComponent = 24;
 ```
 可以看到目前有 25 个枚举值。那么结合我们的例子分析一下创建的顺序。
 ![beginwork-workinpregress-tag](~@/assets/posts/react-source-2steps-render/beginwork-workinpregress-tag.png)
-有上述的log，我们可以看到各个节点对应的 Fiber 节点的 tag 都是多少，那么这 tag 属性是怎么样赋值上去的呢？
+有上述的log，我们可以看到各个节点对应的 `Fiber 节点` 的 tag 都是多少，那么这 tag 属性是怎么样赋值上去的呢？
 
 其实首次渲染在执行到 `renderRootSync` 函数时有一个判断：
 ```javascript
@@ -616,9 +607,9 @@ function prepareFreshStack(root: FiberRoot, lanes: Lanes) {
 }
 ```
 ::: warning
-在首次渲染进入 `prepareFreshStack` 函数时，也同时将 root 赋值给 workInProgressRoot。
+在首次渲染进入 `prepareFreshStack` 函数时，也同时将 `root` 赋值给 `workInProgressRoot` 。
 :::
-我们可以看到，在首次渲染进入 render 阶段时，首个 workInProgress Fiber 节点通过 `createWorkInProgress` 函数创建的，那么我们继续看一下 `createWorkInProgress` 函数的声明：
+我们可以看到，在首次渲染进入 `render` 阶段时，首个 `workInProgress Fiber` 节点通过 `createWorkInProgress` 函数创建的，那么我们继续看一下 `createWorkInProgress` 函数的声明：
 ```javascript
 // packages/react-reconciler/src/ReactFiber.old.js
 
@@ -674,14 +665,14 @@ export function createWorkInProgress(current: Fiber, pendingProps: any): Fiber {
   return workInProgress;
 }
 ```
-因为首次渲染，所以 `let workInProgress = current.alternate;` 我们可知，workInProgress 为 null，所以就会进入 if 判断逻辑，通过 `createFiber` 函数创建 workInProgress Fiber，而此时创建的正是 workInProgress Fiber 树的根节点，和 rootFiber 节点通过alternate属性相关联，这一步在上一篇文章介绍过：
+因为首次渲染，所以 `let workInProgress = current.alternate;` 我们可知， `workInProgress` 为 `null` ，所以就会进入 `if` 判断逻辑，通过 `createFiber` 函数创建 `workInProgress Fiber`，而此时创建的正是 `workInProgress Fiber` 树的根节点，和 `rootFiber` 节点通过 `alternate` 属性相关联，这一步在上一篇文章介绍过：
 ```javascript
 workInProgress.alternate = current;
 current.alternate = workInProgress;
 ```
-那么在创建完 workInProgress Fiber 树的第一个节点后，则会顺利的走到 `workLoopSync` 函数的 while 中，从而开始循环执行 `beginWork`，传入当前workInProgress Fiber 节点进而依次创建下一个 workInProgress Fiber 节点，并且并将这两个Fiber节点连接起来。
+那么在创建完 `workInProgress Fiber 树` 的第一个节点后，则会顺利的走到 `workLoopSync` 函数的 while 中，从而开始循环执行 `beginWork`，传入当前 `workInProgress Fiber 节点` 进而依次创建下一个 `workInProgress Fiber 节点` ，并且并将这两个 `Fiber 节点` 连接起来。
 
-那么现在我们根据例子看几个对应 Fiber 节点的构造方法。
+那么现在我们根据例子看几个对应 `Fiber 节点` 的构造方法。
 #### HostRoot
 ```javascript {26}
 // packages/react-reconciler/src/ReactFiberBeginWork.old.js

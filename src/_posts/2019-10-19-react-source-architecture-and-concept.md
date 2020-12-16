@@ -169,7 +169,7 @@ Renderer 根据 Reconciler 为虚拟DOM打的标记，同步执行对应的DOM�
 
 React 中的 [Hooks](https://react.docschina.org/docs/hooks-intro.html) 和 [Suspense](https://react.docschina.org/docs/concurrent-mode-suspense.html) 的灵感都来自代数效应。
 ### 心智模型
-#### #**代数效应和Generator**
+#### **代数效应和Generator**
 从React 15到React 16，协调器（Reconciler）重构的一大目的是：将老的同步更新的架构变为异步可中断更新。
 
 异步可中断更新可以理解为：更新在执行过程中可能会被打断（浏览器时间分片用尽或有更高优任务插队），当可以继续执行时恢复之前执行的中间状态。
@@ -204,7 +204,7 @@ function* doWork(A, B, C) {
 > 更详细的解释可以参考这个[issue](https://github.com/facebook/react/issues/7942#issuecomment-254987818)
 
 基于这些原因，React没有采用Generator实现协调器。
-#### #**代数效应和Fiber**
+#### **代数效应和Fiber**
 Fiber并不是计算机术语中的新名词，他的中文翻译叫做纤程，与进程（Process）、线程（Thread）、协程（Coroutine）同为程序执行过程。
 
 在很多文章中将纤程理解为协程的一种实现。在JS中，协程的实现便是 Generator。
@@ -218,7 +218,7 @@ React 内部实现的一套状态更新机制。支持任务不同优先级，�
 其中每个任务更新单元为 React Element 对应的 Fiber 节点。
 ### 实现原理
 在 React 中虚拟DOM有一个正式的称呼 —— Fiber
-#### #起源
+#### 起源
 > 最早的Fiber官方解释来源于2016年 React 团队成员 Acdlite 的一篇[介绍](https://github.com/acdlite/react-fiber-architecture)。
 
 从上一章的学习我们知道：
@@ -226,12 +226,12 @@ React 内部实现的一套状态更新机制。支持任务不同优先级，�
 在React15及以前，Reconciler采用递归的方式创建虚拟DOM，递归过程是不能中断的。如果组件树的层级很深，递归会占用线程很多时间，造成卡顿。
 
 为了解决这个问题，React16将递归的无法中断的更新重构为异步的可中断更新，由于曾经用于递归的虚拟DOM数据结构已经无法满足需要。于是，全新的Fiber架构应运而生。
-#### #含义
+#### 含义
 Fiber包含三层含义：
 * 作为架构来说，之前 React 15 的 Reconciler 采用递归的方式执行，数据保存在递归调用栈中，所以被称为 Stack Reconciler。React 16 的 Reconciler 基于 Fiber 节点实现，被称为 Fiber Reconciler。
 * 作为静态的数据结构来说，每个 Fiber 节点对应一个 React element，保存了该组件的类型（函数组件/类组件/原生组件等）、对应的DOM节点等信息。
 * 作为动态的工作单元来说，每个 Fiber 节点保存了本次更新中该组件改变的状态、要执行的工作（需要被删除/被插入页面中/被更新等）。
-#### #结构
+#### 结构
 你可以从这里看到[Fiber节点的属性定义](https://github.com/facebook/react/blob/master/packages/react-reconciler/src/ReactFiber.new.js#L116)。虽然属性很多，但我们可以按三层含义将他们分类来看。
 ```javascript
 // packages/react-reconciler/src/ReactFiber.new.js
