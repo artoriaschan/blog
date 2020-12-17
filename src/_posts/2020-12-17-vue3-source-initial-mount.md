@@ -1,0 +1,1096 @@
+---
+title: Vue 3.0 源码解读(一)
+subtitle: 首次渲染流程
+date: 2020-12-17
+tags:
+  - vue
+  - vue 3.0
+author: ArtoriasChan
+location: Beijing  
+---
+## 前言
+在 `Vue 3.0` 中，推出了 `Vue` 关于**逻辑复用**的最佳实践 —— **Composition API**。和 `React Hooks` 类似，`Composition API` 的推出则是进一步将逻辑和UI进行抽离。
+
+在语法上，`Vue 3.0` 提供了一个 `setup启动函数` 作为逻辑组织的入口，暴露了响应式 API 为用户所用，也提供了 `生命周期函数` 以及 `依赖注入` 的接口，这让我们不依托于 `Options API` 也可以完成一个组件的开发，并且更**有利于代码逻辑的组织和复用**。
+
+但是我们需要注意的是，Composition API 属于Vue中的增强语法，并不是唯一的编程范式，如果组件逻辑够简单，我们依旧可以使用 Options API 进行编写。
+
+那么既然Vue 支持 Composition API 的编程范式，那么我们就需要进一步思考这套 API 是如何设计出来的？他和组件是如何配合的？在组件的整个渲染过程中又做了什么事情呢？
+
+我们以vue-cli创建的 Vue 3.0 模板例子为例，来探讨一下。稍作修改：
+```vue
+<template>
+  <img alt="Vue logo" src="./assets/logo.png" @click="handleClick" />
+  <HelloWorld :msg="finalMsg" />
+</template>
+
+<script lang="ts">
+import { defineComponent, reactive, computed, watch } from "vue";
+import HelloWorld from "./components/HelloWorld.vue";
+
+export default defineComponent({
+  name: "App",
+  components: {
+    HelloWorld
+  },
+  setup() {
+    const state = reactive({
+      msg: "Welcome to Your Vue.js + TypeScript App",
+      count: 1
+    });
+
+    const handleClick = () => {
+      state.count++;
+    };
+
+    const finalMsg = computed(() => {
+      return `${state.msg}! ${state.count}!`;
+    });
+
+    watch(
+      () => state.count,
+      (val, oldVal) => {
+        console.log("watch:", val, oldVal);
+      }
+    );
+
+    return {
+      ...state,
+      finalMsg,
+      handleClick
+    };
+  }
+});
+</script>
+
+<style lang="scss">
+#app {
+  font-family: Avenir, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-align: center;
+  color: #2c3e50;
+  margin-top: 60px;
+}
+</style>
+```
+可以看到我们在这个 `sfc` 中使用了常用的 `Composition API` ： `reactive` 、 `computed` 、 `watch` 。并且使用了 `setup` 入口函数。和 `Vue 2.x` 的书写方式略有不同，多了 `setup` 函数，但是没有 `data` 、 `methods` 、 `computed` 和 `watch` 选项的书写。
+
+并且我们在模板中调用了 `setup` 函数的返回值暴露的状态，那么**setup函数的返回值是怎么和模板关联上的呢**？
+
+在 `Vue 2.x` 的组件编译过程中，组件初始化阶段， `Vue` 内部会处理这些 `options` ，即把定义的变量添加到了组件实例上。等模板编译成 `render` 函数的时候，内部通过 `with(this){}` 的语法去访问在组件实例中的变量。
+
+那么在 `Vue 3.0` 中，我们需要管制的是在模板 `render` 的过程中是如何和 `setup` 方法返回对象进行关联。
+## 渲染流程概览
+首先我们先简单的梳理下 `Vue 3.0` 的首次渲染流程。方便更好的理解 Vue 3.0 对于 setup 方法的处理。
+
+入口文件 `main.ts` 的内容如下：
+```typescript {4}
+import { createApp } from "vue";
+import App from "./App.vue";
+
+createApp(App).mount("#app");
+```
+可以看到相较于 `Vue 2.x` ，`Vue 3.0` 提供了一个 `createApp` 函数代替使用 `new Vue` 创建 `Root` 。
+
+所以整个首次渲染的入口就是这个 `createApp` 函数，我们看一下这个函数的定义：
+```typescript {4,6,16}
+// packages/runtime-dom/src/index.ts
+
+export const createApp = ((...args) => {
+  const app = ensureRenderer().createApp(...args)
+  // ...
+  const { mount } = app
+  app.mount = (containerOrSelector: Element | string): any => {
+    const container = normalizeContainer(containerOrSelector)
+    if (!container) return
+    const component = app._component
+    if (!isFunction(component) && !component.render && !component.template) {
+      component.template = container.innerHTML
+    }
+    // clear content before mounting
+    container.innerHTML = ''
+    const proxy = mount(container)
+    container.removeAttribute('v-cloak')
+    return proxy
+  }
+  return app
+}) as CreateAppFunction<Element>
+```
+根据入口文件内容我们可以看到，其链式调用的第二步则是调用返回的 `app` 实例对象的 `mount` 方法。很显然， `createApp` 函数返回的是一个应用实例。
+
+这个应用实例则是通过 `ensureRenderer().createApp(...args)` 创建的，其中 `mount` 方法又经过重写。
+
+重写的 `mount` 方法则是对传入的 `containerOrSelector` 进行统一处理成 `Element` 。以便调用 `原 mount` 方法传入 `container` 。
+
+我们来看下 `ensureRenderer` 函数最终会返回什么？
+```typescript
+// packages/runtime-dom/src/index.ts
+
+function ensureRenderer() {
+  return renderer || (renderer = createRenderer(rendererOptions))
+}
+// packages/runtime-core/src/renderer.ts
+
+export function createRenderer<
+  HostNode = RendererNode,
+  HostElement = RendererElement
+>(options: RendererOptions<HostNode, HostElement>) {
+  return baseCreateRenderer<HostNode, HostElement>(options)
+}
+
+function baseCreateRenderer(
+  options: RendererOptions,
+  createHydrationFns?: typeof createHydrationFunctions
+): any {
+  // ...
+  return {
+    render,
+    hydrate,
+    createApp: createAppAPI(render, hydrate)
+  }
+}
+```
+根据上述代码，我们可以看到 `ensureRenderer` 函数最终会调用 `baseCreateRenderer` 函数，并返回一个包含 `render` 及 `createApp` 的对象。
+
+而我们在 `createApp` 函数中调用的就是 `ensureRenderer` 函数返回的 `createApp` 函数。而这个函数又是通过 `createAppAPI` 函数创建的。并且在调用时会传入在 `baseCreateRenderer` 函数内部定义的 `render` 函数。
+
+那我们跟着代码逻辑看看 `createAppAPI` 函数会返回怎样的一个函数：
+```typescript
+// packages/runtime-core/src/apiCreateApp.ts
+
+export function createAppAPI<HostElement>(
+  render: RootRenderFunction,
+  hydrate?: RootHydrateFunction
+): CreateAppFunction<HostElement> {
+  return function createApp(rootComponent, rootProps = null) {
+    if (rootProps != null && !isObject(rootProps)) {
+      rootProps = null
+    }
+    // 创建一个 App 上下文，用来存component，mixins，directive等
+    const context = createAppContext()
+    const installedPlugins = new Set()
+    // 是否 mounted 标识
+    let isMounted = false
+
+    const app: App = {
+      _component: rootComponent as Component,
+      _props: rootProps,
+      _container: null,
+      _context: context,
+      // 获取配置
+      get config() {
+        return context.config
+      },
+      
+      use(plugin: Plugin, ...options: any[]) {
+        // 注入插件
+      },
+      mixin(mixin: ComponentOptions) {
+        // 注入组件选项
+      },
+      component(name: string, component?: PublicAPIComponent): any {
+        // 注册组件
+      },
+      directive(name: string, directive?: Directive) {
+        // 注册指令
+      },
+      mount(rootContainer: HostElement, isHydrate?: boolean): any {
+        // 往 container 中渲染 dom
+      },
+      unmount() {
+        // 从 container 移除渲染的 dom
+      },
+      provide(key, value) {
+        // 依赖注入
+      }
+    }
+    return app
+  }
+}
+```
+可以看到 `createAppAPI` 函数返回一个 将 `App` 对象实例作为返回值的函数。
+
+关于 `App` 对象，我们会很清晰的看到他的结构。相较于 `Vue 2.x` 将 `component` ， `directive` ， `mixin` 及 `use` 等方法全部挂载到 `Vue` 上不同，`Vue 3.0` 则是让一个`App对象`实例承载这些 `APIs` 。
+
+我们这里关注一下 `app.mount` 方法的定义：
+```typescript {10}
+// packages/runtime-core/src/apiCreateApp.ts
+
+mount(rootContainer: HostElement, isHydrate?: boolean): any {
+  if (!isMounted) {
+    // 创建 rootComponent 的 vnode 对象，入口 createApp 传入的 rootComponent。
+    const vnode = createVNode(rootComponent as Component, rootProps)
+    // 在 root vnode 中存入 context
+    vnode.appContext = context
+    // ...
+    render(vnode, rootContainer)
+    isMounted = true
+    app._container = rootContainer
+    return vnode.component!.proxy
+  }
+}
+```
+在 `app.mount` 中我们会调用传入的 `render` 函数进行渲染。我们看一下传入的 `render` 函数的定义：
+```typescript {9}
+// packages/runtime-core/src/renderer.ts
+
+const render: RootRenderFunction = (vnode, container) => {
+  if (vnode == null) {
+    if (container._vnode) {
+      unmount(container._vnode, null, null, true)
+    }
+  } else {
+    patch(container._vnode || null, vnode, container)
+  }
+  flushPostFlushCbs()
+  container._vnode = vnode
+}
+```
+对于首次渲染来说，最终回到 `else分支` 去调用 `patch` 函数，这个函数也是在 `baseCreateRenderer` 函数内部定义的。类似 `Vue 2.x` 的 `vm.__patch__` 方法。
+
+patch 函数的主要逻辑如下：
+* 先根据传入的更新后 `vnode` 对象的 `type` ，做相应的处理。
+```typescript
+// packages/runtime-core/src/vnode.ts
+
+export const Fragment = (Symbol(undefined) as any) as {
+  __isFragment: true
+  new (): {
+    $props: VNodeProps
+  }
+}
+export const Text = Symbol(undefined)
+export const Comment = Symbol(undefined)
+export const Static = Symbol(undefined)
+```
+* 然后再根据 `vnode` 对象的 `shapeFlag` ，作相应的处理。
+```typescript
+// packages/shared/src/shapeFlags.ts
+
+export const enum ShapeFlags {
+  ELEMENT = 1,
+  FUNCTIONAL_COMPONENT = 1 << 1,
+  STATEFUL_COMPONENT = 1 << 2,
+  TEXT_CHILDREN = 1 << 3,
+  ARRAY_CHILDREN = 1 << 4,
+  SLOTS_CHILDREN = 1 << 5,
+  TELEPORT = 1 << 6,
+  SUSPENSE = 1 << 7,
+  COMPONENT_SHOULD_KEEP_ALIVE = 1 << 8,
+  COMPONENT_KEPT_ALIVE = 1 << 9,
+  COMPONENT = ShapeFlags.STATEFUL_COMPONENT | ShapeFlags.FUNCTIONAL_COMPONENT
+}
+``` 
+我们这边现主要关注 `ShapeFlags.COMPONENT` 的情况，这时我们会调用 `processComponent` 函数处理 `vnode` 。同样的 `processComponent` 函数也是在 `baseCreateRenderer` 函数中声明的，其定义如下：
+```typescript {17-25}
+// packages/runtime-core/src/renderer.ts
+
+const processComponent = (
+  n1: VNode | null,
+  n2: VNode,
+  container: RendererElement,
+  anchor: RendererNode | null,
+  parentComponent: ComponentInternalInstance | null,
+  parentSuspense: SuspenseBoundary | null,
+  isSVG: boolean,
+  optimized: boolean
+) => {
+  if (n1 == null) {
+    if (n2.shapeFlag & ShapeFlags.COMPONENT_KEPT_ALIVE) {
+      // 组件 keep-alive 情况处理
+    } else {
+      mountComponent(
+        n2,
+        container,
+        anchor,
+        parentComponent,
+        parentSuspense,
+        isSVG,
+        optimized
+      )
+    }
+  } else {
+    updateComponent(n1, n2, parentComponent, optimized)
+  }
+}
+```
+## 组件实例初始化过程
+由于是首次渲染，则 `n1 == null` 条件成立，会走到 `if分支` 中，调用 `mountComponent` 函数。同样，该函数也是在 `baseCreateRenderer` 函数中声明的。
+```typescript
+// packages/runtime-core/src/renderer.ts
+
+const mountComponent: MountComponentFn = (
+  initialVNode,
+  container,
+  anchor,
+  parentComponent,
+  parentSuspense,
+  isSVG,
+  optimized
+) => {
+  // 创建组件实例
+  const instance: ComponentInternalInstance = (initialVNode.component = createComponentInstance(
+    initialVNode,
+    parentComponent,
+    parentSuspense
+  ))
+  // ...
+  // 设置组件实例
+  setupComponent(instance)
+  // ...
+  // 设置并运行带副作用的渲染函数
+  setupRenderEffect(
+    instance,
+    initialVNode,
+    container,
+    anchor,
+    parentSuspense,
+    isSVG,
+    optimized
+  )
+  // ...
+}
+```
+`mountComponent` 函数的主要处理逻辑如下：
+* 创建 `ComponentInstance`
+* 设置 `ComponentInstance`。其中包括调用`setup`，处理返回对象。
+* 设置并运行带副作用的渲染函数
+
+我们先看 `createComponentInstance` 函数的定义：
+```typescript
+export function createComponentInstance(
+  vnode: VNode,
+  parent: ComponentInternalInstance | null,
+  suspense: SuspenseBoundary | null
+) {
+  // 获取上下问
+  const appContext =
+    (parent ? parent.appContext : vnode.appContext) || emptyAppContext
+  const instance: ComponentInternalInstance = {
+    uid: uid++, // 组件唯一 id
+    vnode, // 组件 vnode 对象
+    parent, // 父组件实例
+    appContext, // app 上下文
+    type: vnode.type as Component, // vnode 节点类型
+    root: null!, // 根组件实例
+    next: null, // 新的组件 vnode
+    subTree: null!, // 子节点 vnode
+    update: null!, // 带副作用更新函数
+    render: null, // 渲染函数
+    proxy: null, // 渲染上下文代理
+    withProxy: null, // 带有 with 区块的渲染上下文代理
+    effects: null, // 响应式相关对象
+    provides: parent ? parent.provides : Object.create(appContext.provides), // 依赖注入相关
+    accessCache: null!, // 渲染代理的属性访问缓存
+    renderCache: [], // 渲染缓存
+
+    // state
+    ctx: EMPTY_OBJ, // 渲染上下文
+    data: EMPTY_OBJ, // data 数据
+    props: EMPTY_OBJ, // props 数据
+    attrs: EMPTY_OBJ, // 普通属性
+    slots: EMPTY_OBJ, // 插槽相关
+    refs: EMPTY_OBJ, // 组件或者 DOM 的 ref 引用
+    setupState: EMPTY_OBJ, // setup 函数返回的响应式结果
+    setupContext: null, // setup 函数上下文数据
+
+    components: Object.create(appContext.components), // 注册的组件
+    directives: Object.create(appContext.directives),// 注册的指令
+
+    suspense, // suspense 相关
+    asyncDep: null, // suspense 异步依赖
+    asyncResolved: false, // suspense 异步依赖是否都已处理
+
+    // 声明周期钩子函数
+    isMounted: false, // 是否挂载
+    isUnmounted: false, // 是否卸载
+    isDeactivated: false, // 是否激活
+    bc: null, // 生命周期，beforeCreate
+    c: null, // 生命周期，created
+    bm: null, // 生命周期，beforeMount
+    m: null, // 生命周期，mounted
+    bu: null, // 生命周期，beforeUpdate
+    u: null, // 生命周期，updated
+    um: null, // 生命周期，unmounted
+    bum: null, // 生命周期，beforeUnmount
+    da: null, // 生命周期, deactivated
+    a: null, // 生命周期 activated
+    rtg: null, // 生命周期 renderTriggered
+    rtc: null, // 生命周期 renderTracked
+    ec: null, // 生命周期 errorCaptured
+    emit: null as any // 派发事件方法
+  }
+  // ...
+  instance.ctx = { _: instance }
+  instance.root = parent ? parent.root : instance
+  instance.emit = emit.bind(null, instance)
+  return instance
+}
+```
+从上述代码中可以看到，组件实例 `instance` 上定义了很多属性，其中一些属性是为了实现某个场景或者某个功能所定义的，你只需要通过我在代码中的注释大概知道它们是做什么的即可。
+
+`Vue 2.x` 使用 `new Vue` 来初始化一个组件的实例，到了 `Vue 3.0`，我们直接通过创建对象去创建组件的实例。
+
+创建好 `instance` 实例后，接下来就是设置它的一些属性。 `instance` 实例的设置则是通过调用 `setupComponent` 函数传入 `instance` 实例实现的。
+```typescript {12,14,17}
+// packages/runtime-core/src/component.ts
+
+export function setupComponent(
+  instance: ComponentInternalInstance,
+  isSSR = false
+) {
+  // ...
+  const { props, children, shapeFlag } = instance.vnode
+  // 判断当前组件是否是有状态的组件实例
+  const isStateful = shapeFlag & ShapeFlags.STATEFUL_COMPONENT
+  // 初始化 props
+  initProps(instance, props, isStateful, isSSR)
+  // 初始化插槽相关
+  initSlots(instance, children)
+  // 设置有状态的组件实例
+  const setupResult = isStateful
+    ? setupStatefulComponent(instance, isSSR)
+    : undefined
+  // ...
+  return setupResult
+}
+```
+接下来我们要关注到 `setupStatefulComponent` 函数，它主要做了三件事：
+* 创建渲染上下文代理
+* 判断处理 `setup` 函数
+* 完成组件实例设置
+
+它代码如下所示：
+```typescript {12,32,35}
+// packages/runtime-core/src/component.ts
+
+function setupStatefulComponent(
+  instance: ComponentInternalInstance,
+  isSSR: boolean
+) {
+  const Component = instance.type as ComponentOptions
+  // ...
+  // 0. 创建渲染代理的属性访问缓存
+  instance.accessCache = {}
+  // 1. 创建渲染上下文代理，instance.ctx === {_: instance}
+  instance.proxy = new Proxy(instance.ctx, PublicInstanceProxyHandlers)
+  // 2. 执行 setup 函数
+  const { setup } = Component
+  if (setup) {
+    // 如果 setup 函数带参数，则创建一个 setupContext
+    const setupContext = (instance.setupContext =
+      setup.length > 1 ? createSetupContext(instance) : null)
+    // 设置currentInstance为当前处理组件实例
+    currentInstance = instance
+    // 执行 setup 函数，获取结果
+    const setupResult = callWithErrorHandling(
+      setup,
+      instance,
+      ErrorCodes.SETUP_FUNCTION,
+      [instance.props, setupContext]
+    )
+    // 设置currentInstance为null
+    currentInstance = null
+    // ...
+    // 处理 setup 执行结果
+    handleSetupResult(instance, setupResult, isSSR)
+  } else {
+    // 完成组件实例设置
+    finishComponentSetup(instance, isSSR)
+  }
+}
+```
+### 创建渲染上下文代理
+首先对 `instance.ctx` 创建了一个代理对象，并将其赋值给 `instance.proxy` 。在 `createComponentInstance` 函数中，我们得知 `instance.ctx` 的指向的对象为 `{_:instance}`。
+
+由于组件中不同状态的数据会存储到不同的属性中，为了方便数据的获取，则会通过这个代理，将`setupState`、`data`、`ctx`、`props`中的属性代理到 `instance.ctx` 对象上。
+
+其中传入的捕获器对象 `PublicInstanceProxyHandlers` 中主要对`get`，`set`，`has`行为的捕获。
+
+当我们 **访问 instance.ctx 渲染上下文中的属性**时，就会**进入 get 函数**。我们来看一下它的实现：
+```typescript
+// packages/runtime-core/src/componentProxy.ts
+
+get({ _: instance }: ComponentRenderContext, key: string) {
+  const {
+    ctx,
+    setupState,
+    data,
+    props,
+    accessCache,
+    type,
+    appContext
+  } = instance
+
+  // 在渲染期间，这个getter会在 render context 的每次属性访问时被调用，它是一个主要的热点。
+  // 其中开销最大的部分是多个hasOwn()调用。
+  // 对普通对象进行简单的属性访问要快得多，因此我们使用 accessCache对象 (带有null原型)来记忆键对应的访问类型。
+  if (key[0] !== '$') {
+    const n = accessCache![key]
+    if (n !== undefined) {
+      switch (n) {
+        case AccessTypes.SETUP:
+          return setupState[key]
+        case AccessTypes.DATA:
+          return data[key]
+        case AccessTypes.CONTEXT:
+          return ctx[key]
+        case AccessTypes.PROPS:
+          return props![key]
+        // default: just fallthrough
+      }
+    // setupState
+    } else if (setupState !== EMPTY_OBJ && hasOwn(setupState, key)) {
+      accessCache![key] = AccessTypes.SETUP
+      return setupState[key]
+    // data
+    } else if (data !== EMPTY_OBJ && hasOwn(data, key)) {
+      accessCache![key] = AccessTypes.DATA
+      return data[key]
+    // props
+    } else if (
+      type.props &&
+      hasOwn(normalizePropsOptions(type.props)[0]!, key)
+    ) {
+      accessCache![key] = AccessTypes.PROPS
+      return props![key]
+    // ctx
+    } else if (ctx !== EMPTY_OBJ && hasOwn(ctx, key)) {
+      accessCache![key] = AccessTypes.CONTEXT
+      return ctx[key]
+    } else {
+      accessCache![key] = AccessTypes.OTHER
+    }
+  }
+  // 兼容 Vue 2.x 的公共属性
+  const publicGetter = publicPropertiesMap[key]
+  let cssModule, globalProperties
+  // 公开的 $xxx 属性或方法
+  if (publicGetter) {
+    return publicGetter(instance)
+  // css 模块，通过 vue-loader 编译的时候注入
+  } else if (
+    (cssModule = type.__cssModules) &&
+    (cssModule = cssModule[key])
+  ) {
+    return cssModule
+  // 用户自定义的属性，也用 `$` 开头
+  } else if (ctx !== EMPTY_OBJ && hasOwn(ctx, key)) {
+    accessCache![key] = AccessTypes.CONTEXT
+    return ctx[key]
+  // 全局定义的属性
+  } else if (
+    ((globalProperties = appContext.config.globalProperties),
+    hasOwn(globalProperties, key))
+  ) {
+    return globalProperties[key]
+  }
+},
+```
+函数首先判断 `key` 不以 `$` 开头的情况，这部分数据可能是 `setupState` 、`data`、`props`、`ctx` 中的一种。
+
+其中 `data`、`props` 我们已经很熟悉了；`setupState` 就是 `setup` 函数返回的数据；`ctx` 包括了计算属性、组件方法和用户自定义的一些数据。
+
+其中 `accessCache` 起到的作用则是对上下文访问的属性进行缓存，减少 `hasOwn` 函数带来的开销。首次未命中是，则按照如下优先级进行访问：
+```sh
+setupState -> data -> props -> ctx
+```
+在首次访问的同时，将该属性缓存到 `accessCache` 中，以 `{key : AccessTypes}` 的形式进行赋值。
+
+如果 `key` 以 `$` 开头，那么接下来又会有一系列的判断：
+* 首先判断是不是 `Vue` 内部公开的 `$xxx` 属性或方法（比如 `$parent`）
+* 然后判断是不是 `vue-loader` 编译注入的 `css` 模块内部的 `key`
+* 接着判断是不是用户自定义以 `$` 开头的 `key`
+* 最后判断是不是全局属性
+
+接下来是 `set` 代理过程，当我们修改 `instance.ctx` 渲染上下文中的属性的时候，就会进入 `set` 函数。我们来看一下 `set` 函数的实现：
+```typescript
+set({ _: instance }: ComponentRenderContext, key: string, value: any): boolean {
+  const { data, setupState, ctx } = instance
+  // 给 setupState 赋值
+  if (setupState !== EMPTY_OBJ && hasOwn(setupState, key)) {
+    setupState[key] = value
+  // 给 data 赋值
+  } else if (data !== EMPTY_OBJ && hasOwn(data, key)) {
+    data[key] = value
+  // 不能直接给 props 赋值
+  } else if (key in instance.props) {
+    return false
+  }
+  // 不能给 Vue 内部以 $ 开头的保留属性赋值
+  if (key[0] === '$' && key.slice(1) in instance) {
+    return false
+  } else {
+    // 用户自定义属性赋值
+    ctx[key] = value
+  }
+  return true
+}
+```
+结合代码来看，函数主要做的事情就是对渲染上下文 `instance.ctx` 中的属性赋值，它实际上是代理到对应的数据类型中去完成赋值操作的。
+
+这里还是需要注意优先级的问题。和`get`一样，先 `setState` 再 `data` ，继而 `props` 。
+
+最后是 `has` 代理过程，当我们判断属性是否存在于 `instance.ctx` 渲染上下文中时，就会进入 `has` 函数，这个在平时项目中用的比较少。
+
+主要是使用 `in` 操作符判断某个属性是否属于组件实例时触发：
+```typescript
+  has({_: { data, setupState, accessCache, ctx, type, appContext }}: ComponentRenderContext, key: string) {
+    return (
+      // 属性访问缓存
+      accessCache![key] !== undefined ||
+      // data
+      (data !== EMPTY_OBJ && hasOwn(data, key)) ||
+      // setupState
+      (setupState !== EMPTY_OBJ && hasOwn(setupState, key)) ||
+      // props
+      (type.props && hasOwn(normalizePropsOptions(type.props)[0]!, key)) ||
+      // ctx
+      hasOwn(ctx, key) ||
+      // publicPropertiesMap
+      hasOwn(publicPropertiesMap, key) ||
+      // globalProperties
+      hasOwn(appContext.config.globalProperties, key)
+    )
+  }
+```
+### 判断处理 setup 函数
+我们看一下整个逻辑涉及的代码：
+```typescript {5-6,10-15,20}
+// 2. 执行 setup 函数
+const { setup } = Component
+if (setup) {
+  // 如果 setup 函数带参数，则创建一个 setupContext
+  const setupContext = (instance.setupContext =
+    setup.length > 1 ? createSetupContext(instance) : null)
+  // 设置currentInstance为当前处理组件实例
+  currentInstance = instance
+  // 执行 setup 函数，获取结果
+  const setupResult = callWithErrorHandling(
+    setup,
+    instance,
+    ErrorCodes.SETUP_FUNCTION,
+    [instance.props, setupContext]
+  )
+  // 设置currentInstance为null
+  currentInstance = null
+  // ...
+  // 处理 setup 执行结果
+  handleSetupResult(instance, setupResult, isSSR)
+} 
+```
+如果我们在组件中定义了 `setup` 函数，接下来就是处理 `setup` 函数的流程，主要是三个步骤：
+* 创建 `setup` 函数上下文
+* 执行 `setup` 函数并获取结果
+* 处理 `setup` 函数的执行结果
+
+#### 创建 setup 函数上下文
+首先我们首先看一下创建函数上下文的部分，通过对 `setup.length` 的判断，当传递参数大于 `1` 时，创建 `setupContext` 。
+
+我们看一下 `createSetupContext` 函数的定义：
+```typescript
+// packages/runtime-core/src/component.ts
+
+function createSetupContext(instance: ComponentInternalInstance): SetupContext {
+  return {
+    attrs: instance.attrs,
+    slots: instance.slots,
+    emit: instance.emit
+  }
+}
+```
+根据 `Vue 3.0` 的文档，我们可以得知，当我们需要 `SetupContext` 参数时，从 `setup` 方法的第二个获得即可。如此看来这边是根据 `setup` 方法的声明来动态的添加参数。
+#### 执行 setup 函数并获取结果
+我们再来看一下 `setup` 函数并获取结果，从代码上来看这边是将需要执行的 `setup` 经过 `callWithErrorHandling` 函数的包裹，进而执行。传入的参数则是` [instance.props, setupContext]`。
+#### 处理 setup 函数的执行结果
+最后一步则是通过 `handleSetupResult` 函数来处理 `setup` 函数的返回对象。其函数定义如下：
+```typescript {10,13}
+// packages/runtime-core/src/component.ts
+
+export function handleSetupResult(
+  instance: ComponentInternalInstance,
+  setupResult: unknown,
+  isSSR: boolean
+) {
+  if (isFunction(setupResult)) {
+    // 返回为Function时，将其作为渲染方法放入instance.render中。
+    instance.render = setupResult as RenderFunction
+  } else if (isObject(setupResult)) {
+    // 返回为 Object 时，假设组件实例有一个从模板编译而来的 render ，则将返回对象放入 instance.setupState 中。
+    instance.setupState = reactive(setupResult)
+  }
+  // 
+  finishComponentSetup(instance, isSSR)
+}
+```
+### 完成组件实例设置
+最后，无论组件是否声明过 `setup` 方法，都会执行 `finishComponentSetup` 函数来完成组件实例设置。
+
+`finishComponentSetup` 函数的定义如下：
+```typescript {13-15,39,50-54}
+// packages/runtime-core/src/component.ts
+
+function finishComponentSetup(
+  instance: ComponentInternalInstance,
+  isSSR: boolean
+) {
+  const Component = instance.type as ComponentOptions
+  // 对模板或者渲染函数的标准化
+  if (!instance.render) {
+    // 运行时编译
+    if (compile && Component.template && !Component.render) {
+      // 使用 compile 将模板编译成 render 函数。
+      Component.render = compile(Component.template, {
+        isCustomElement: instance.appContext.config.isCustomElement || NO
+      })
+      // 将此render函数标记成运行时编译
+      ;(Component.render as RenderFunction)._rc = true
+    }
+    if (__DEV__ && !Component.render) {
+      // 只编写了 template 但使用了 runtime-only 的版本
+      if (!compile && Component.template) {
+        warn(
+          `Component provided template option but ` +
+            `runtime compilation is not supported in this build of Vue.` +
+            (__ESM_BUNDLER__
+              ? ` Configure your bundler to alias "vue" to "vue/dist/vue.esm-bundler.js".`
+              : __ESM_BROWSER__
+                ? ` Use "vue.esm-browser.js" instead.`
+                : __GLOBAL__
+                  ? ` Use "vue.global.js" instead.`
+                  : ``) /* should not happen */
+        )
+      } else {
+        // 既没有写 render 函数，也没有写 template 模板
+        warn(`Component is missing template or render function.`)
+      }
+    }
+    // 组件对象的 render 函数赋值给 instance
+    instance.render = (Component.render || NOOP) as RenderFunction
+    // 对于使用 with 块的运行时编译的渲染函数，使用新的渲染上下文的代理
+    if (instance.render._rc) {
+      instance.withProxy = new Proxy(
+        instance.ctx,
+        RuntimeCompiledPublicInstanceProxyHandlers
+      )
+    }
+  }
+
+  // 兼容 Vue 2.x options
+  if (__FEATURE_OPTIONS__) {
+    currentInstance = instance
+    applyOptions(instance, Component)
+    currentInstance = null
+  }
+}
+```
+函数主要做了两件事情：**标准化模板或者渲染函数**和**兼容 Options API**。接下来我们详细分析这两个流程。
+#### 标准化模板或者渲染函数
+在分析这个过程之前，我们需要了解一些背景知识。组件最终通过运行 `render` 函数生成子树 `vnode` ，但是我们很少直接去编写 `render` 函数，通常会使用两种方式开发组件。
+
+**第一种是使用 SFC（Single File Components）单文件的开发方式来开发组件**。即通过编写组件的 `template` 模板去描述一个组件的 `DOM` 结构。我们知道 `.vue` 类型的文件无法在 `Web` 端直接加载，因此在 `webpack` 的编译阶段，它会通过 `vue-loader` 编译生成组件相关的 `JavaScript` 和 `CSS`，并把 `template` 部分转换成 `render` 函数添加到组件对象的属性中。
+
+**另外一种开发方式是不借助 webpack 编译，直接引入 Vue.js，开箱即用**。我们直接在组件对象 `template` 属性中编写组件的模板，然后在运行阶段编译生成 `render` 函数，这种方式通常用于有一定历史包袱的古老项目。
+
+因此 `Vue` 在 `Web` 端有两个版本：`runtime-only` 和 `runtime-compiled`。我们更推荐用 `runtime-only` 版本的 `Vue.js`，因为相对而言它体积更小，而且在运行时不用编译，不仅耗时更少而且性能更优秀。
+
+`runtime-only` 和 `runtime-compiled` 的主要区别在于是否注册了这个 `compile` 方法。
+
+```typescript
+// packages/runtime-core/src/component.ts
+
+let compile: CompileFunction | undefined
+
+// exported method uses any to avoid d.ts relying on the compiler types.
+export function registerRuntimeCompiler(_compile: any) {
+  compile = _compile
+}
+```
+回到标准化模板或者渲染函数逻辑，这边的判断逻辑分为三部分：
+* `compile` 和组件 `template` `属性存在，render` 方法不存在的情况。这种情况会在 `JavaScript` 运行时进行模板编译，生成 `render` 函数。
+* `compile` 和 `render` 方法不存在，组件 `template` 属性存在的情况。这种情况会报一个警告来告诉用户，想要运行时编译得使用 `runtime-compiled` 版本的 `Vue.js`。
+* 组件既没有写 `render` 函数，也没有写 `template` 模板。这种情况会报一个警告，告诉用户组件缺少了 `render` 函数或者 `template` 模板。
+
+另外对于使用 `with 块` **运行时编译的渲染函数**，渲染上下文的代理的捕获器是 `RuntimeCompiledPublicInstanceProxyHandlers` ，它是在之前渲染上下文代理的捕获器  `PublicInstanceProxyHandlers` 的基础上进行的扩展，主要对 `has` 函数的实现做了优化：
+```typescript {13}
+// packages/runtime-core/src/componentProxy.ts
+
+export const RuntimeCompiledPublicInstanceProxyHandlers = {
+  ...PublicInstanceProxyHandlers,
+  get(target: ComponentRenderContext, key: string) {
+    if ((key as any) === Symbol.unscopables) {
+      return
+    }
+    return PublicInstanceProxyHandlers.get!(target, key, target)
+  },
+  has(_: ComponentRenderContext, key: string) {
+    // 如果 key 以 _ 开头或者 key 在全局变量白名单内，则 has 为 false
+    return key[0] !== '_' && !isGloballyWhitelisted(key)
+  }
+}
+```
+#### 兼容 Vue 2.x options
+我们知道 `Vue 2.x` 是通过组件对象的方式去描述一个组件，之前我们也说过，`Vue 3.0` 仍然支持 `Vue 2.x Options API` 的写法，这主要就是通过 `applyOptions` 函数实现的。
+
+由于这部分的代码有点长，这边只是用注释罗列出其处理逻辑。
+```typescript
+function applyOptions(instance, options, deferredData = [], deferredWatch = [], asMixin = false) {
+  const {
+    // 组合
+    mixins, extends: extendsOptions,
+    // 数组状态
+    props: propsOptions, data: dataOptions, computed: computedOptions, methods, watch: watchOptions, provide: provideOptions, inject: injectOptions,
+    // 组件和指令
+    components, directives,
+    // 生命周期
+    beforeMount, mounted, beforeUpdate, updated, activated, deactivated, beforeUnmount, unmounted, renderTracked, renderTriggered, errorCaptured } = options;
+  // instance.proxy 作为 this
+  const publicThis = instance.proxy;
+  const ctx = instance.ctx;
+  // 处理全局 mixin
+  // 处理 extend
+  // 处理本地 mixins
+  // props 已经在外面处理过了
+  // 处理 inject
+  // 处理 方法
+  // 处理 data
+  // 处理计算属性
+  // 处理 watch
+  // 处理 provide
+  // 处理组件
+  // 处理指令
+  // 处理生命周期 option
+}
+```
+至此组件实例初始化完成。
+
+下面我们看一下 `setupRenderEffect` 函数。
+## 设置并运行带副作用的渲染函数
+我们先来回顾一下 `setupRenderEffect` 函数的调用，他是在 `setupComponent` 函数之后调用的：
+```typescript {12-20}
+const mountComponent: MountComponentFn = (
+  initialVNode,
+  container,
+  anchor,
+  parentComponent,
+  parentSuspense,
+  isSVG,
+  optimized
+) => {
+  // ...
+  // 设置并运行带副作用的渲染函数
+  setupRenderEffect(
+    instance,
+    initialVNode,
+    container,
+    anchor,
+    parentSuspense,
+    isSVG,
+    optimized
+  )
+  // ...
+}
+```
+同样， `setupRenderEffect` 也是在 `baseCreateRenderer` 函数中声明的，其函数的声明如下：
+```typescript {18,27-35}
+// packages/runtime-core/src/renderer.ts
+
+const setupRenderEffect: SetupRenderEffectFn = (
+  instance,
+  initialVNode,
+  container,
+  anchor,
+  parentSuspense,
+  isSVG,
+  optimized
+) => {
+  // 为渲染创建一个响应式副作用
+  instance.update = effect(function componentEffect() {
+    if (!instance.isMounted) {
+      let vnodeHook: VNodeHook | null | undefined
+      const { el, props } = initialVNode
+      const { bm, m, a, parent } = instance
+      const subTree = (instance.subTree = renderComponentRoot(instance))
+      // beforeMount hook
+      if (bm) {
+        invokeArrayFns(bm)
+      }
+      // onVnodeBeforeMount
+      if ((vnodeHook = props && props.onVnodeBeforeMount)) {
+        invokeVNodeHook(vnodeHook, parent, initialVNode)
+      }
+      patch(
+        null,
+        subTree,
+        container,
+        anchor,
+        instance,
+        parentSuspense,
+        isSVG
+      )
+      initialVNode.el = subTree.el
+      // mounted hook
+      if (m) {
+        queuePostRenderEffect(m, parentSuspense)
+      }
+      // onVnodeMounted
+      if ((vnodeHook = props && props.onVnodeMounted)) {
+        queuePostRenderEffect(() => {
+          invokeVNodeHook(vnodeHook!, parent, initialVNode)
+        }, parentSuspense)
+      }
+      // activated hook for keep-alive roots.
+      if (
+        a &&
+        initialVNode.shapeFlag & ShapeFlags.COMPONENT_SHOULD_KEEP_ALIVE
+      ) {
+        queuePostRenderEffect(a, parentSuspense)
+      }
+      instance.isMounted = true
+    } else {
+      // 组件更新时执行逻辑
+    }
+  }, prodEffectOptions)
+}
+```
+可以看到， `setupRenderEffect` 函数内部使用了 `effect` 函数，在 `Vue 3.0` 中， `effect` 是在 `reactivity` 模块下实现的，这里我们可以先暂时理解其为 `Watcher` 。
+
+这里需要注意，`effect` 在注册完成后，如果没有传入相关参数，会立即执行一次回调函数用来依赖收集。
+
+由于首次渲染，则执行传入 `effect` 的方法时，会走到 `if 分支`。从而会触发两个最主要的操作：
+* 获取子节点 `subTree`
+* 调用 `patch` 渲染子节点
+
+在这个过程中，最后都会调用 `processElement` 函数，将 `vnode节点` 渲染成 `dom` 。同样的， `processElement` 函数也是在 `baseCreateRenderer` 函数中声明的， 其声明如下：
+```typescript
+// packages/runtime-core/src/renderer.ts
+
+const processElement = (
+  n1: VNode | null,
+  n2: VNode,
+  container: RendererElement,
+  anchor: RendererNode | null,
+  parentComponent: ComponentInternalInstance | null,
+  parentSuspense: SuspenseBoundary | null,
+  isSVG: boolean,
+  optimized: boolean
+) => {
+  // 判断是否是svg
+  isSVG = isSVG || (n2.type as string) === 'svg'
+  if (n1 == null) {
+    mountElement(
+      n2,
+      container,
+      anchor,
+      parentComponent,
+      parentSuspense,
+      isSVG,
+      optimized
+    )
+  } else {
+    // 更新时的处理
+  }
+}
+```
+在上述代码中，我们会走到 `if分支` ，从而调用 `mountElement` 函数。 `mountElement` 在 `baseCreateRenderer` 函数中的声明如下：
+```typescript {26,28,37,50,56,61,78}
+const mountElement = (
+  vnode: VNode,
+  container: RendererElement,
+  anchor: RendererNode | null,
+  parentComponent: ComponentInternalInstance | null,
+  parentSuspense: SuspenseBoundary | null,
+  isSVG: boolean,
+  optimized: boolean
+) => {
+  let el: RendererElement
+  let vnodeHook: VNodeHook | undefined | null
+  const {
+    type,
+    props,
+    shapeFlag,
+    transition,
+    scopeId,
+    patchFlag,
+    dirs
+  } = vnode
+  if (
+    vnode.el &&
+    hostCloneNode !== undefined &&
+    patchFlag === PatchFlags.HOISTED
+  ) {
+    el = vnode.el = hostCloneNode(vnode.el)
+  } else {
+    el = vnode.el = hostCreateElement(
+      vnode.type as string,
+      isSVG,
+      props && props.is
+    )
+    // props
+    if (props) {
+      for (const key in props) {
+        if (!isReservedProp(key)) {
+          hostPatchProp(el, key, null, props[key], isSVG)
+        }
+      }
+      if ((vnodeHook = props.onVnodeBeforeMount)) {
+        invokeVNodeHook(vnodeHook, parentComponent, vnode)
+      }
+    }
+    if (dirs) {
+      invokeDirectiveHook(vnode, null, parentComponent, 'beforeMount')
+    }
+
+    // scopeId
+    if (scopeId) {
+      hostSetScopeId(el, scopeId)
+    }
+    const treeOwnerId = parentComponent && parentComponent.type.__scopeId
+    // vnode's own scopeId and the current patched component's scopeId is
+    // different - this is a slot content node.
+    if (treeOwnerId && treeOwnerId !== scopeId) {
+      hostSetScopeId(el, treeOwnerId + '-s')
+    }
+
+    // children
+    if (shapeFlag & ShapeFlags.TEXT_CHILDREN) {
+      hostSetElementText(el, vnode.children as string)
+    } else if (shapeFlag & ShapeFlags.ARRAY_CHILDREN) {
+      mountChildren(
+        vnode.children as VNodeArrayChildren,
+        el,
+        null,
+        parentComponent,
+        parentSuspense,
+        isSVG && type !== 'foreignObject',
+        optimized || !!vnode.dynamicChildren
+      )
+    }
+    if (transition && !transition.persisted) {
+      transition.beforeEnter(el)
+    }
+  }
+  // 插入元素
+  hostInsert(el, container, anchor)
+  if (
+    (vnodeHook = props && props.onVnodeMounted) ||
+    (transition && !transition.persisted) ||
+    dirs
+  ) {
+    // 调用声明周期钩子
+    queuePostRenderEffect(() => {
+      vnodeHook && invokeVNodeHook(vnodeHook, parentComponent, vnode)
+      transition && !transition.persisted && transition.enter(el)
+      dirs && invokeDirectiveHook(vnode, null, parentComponent, 'mounted')
+    }, parentSuspense)
+  }
+}
+```
+在 `mountElement` 函数中，我们调用宿主环境的节点操作函数，将生成的 `Element` 插入到 `DOM` 中。
+
+至于宿主环境的节点操作函数则是在调用 `createRenderer` 时传入的。
+
+至此，初次渲染的大概流程就结束了。当然，在 `vnode节点` 拥有子节点时， 会调用 `mountChildren` 函数遍历处理。
+## 总体流程
+![initial-mount](~@assets/posts/vue3-source-initial-mount/initial-mount.png)
