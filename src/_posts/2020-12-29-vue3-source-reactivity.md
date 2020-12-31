@@ -311,7 +311,9 @@ function createGetter(isReadonly = false, shallow = false) {
 整个 `get` 函数最核心的部分其实是**执行 track 函数收集依赖**，下面我们重点分析这个过程。
 
 我们先来看一下 `track` 函数的实现：
-```ts
+```ts {27-33}
+// packages/reactivity/src/baseHandlers.ts
+
 // 原始数据对象 map
 const targetMap = new WeakMap<any, KeyToDepMap>()
 // 当前激活的 effect
@@ -358,7 +360,421 @@ export function track(target: object, type: TrackOpTypes, key: unknown) {
 
 所以每次 `track` ，就是把当前激活的副作用函数 `activeEffect` 作为依赖，然后收集到 `target` 相关的 `depsMap` 对应 `key` 下的依赖集合 `dep` 中。
 ### 派发通知
+**派发通知发生在数据更新的阶段**，由于我们用 `Proxy API` 劫持了数据对象，所以当这个响应式对象属性被修改的时候就会执行 `set` 函数。
+
+捕捉器 `set` 函数是 `createSetter` 函数的返回值，我们看一下 `createSetter` 函数的代码实现。
+```ts {28,30-38}
+// packages/reactivity/src/baseHandlers.ts
+
+function createSetter(shallow = false) {
+  return function set(
+    target: object,
+    key: string | symbol,
+    value: unknown,
+    receiver: object
+  ): boolean {
+    // 获取旧属性值
+    const oldValue = (target as any)[key]
+    if (!shallow) {
+      // 获取新属性值的原始对象
+      value = toRaw(value)
+      // 目标对象不是数组，并且旧属性值为包装对象，新属性值为原始值
+      if (!isArray(target) && isRef(oldValue) && !isRef(value)) {、
+        // 直接修改包装对象的value为新属性值
+        oldValue.value = value
+        return true
+      }
+    } else {}
+    // 判断目标对象上是否存在该属性 key
+    const hadKey =
+      isArray(target) && isIntegerKey(key)
+        ? Number(key) < target.length
+        : hasOwn(target, key)
+    // 调用Reflect.set对属性key赋值
+    const result = Reflect.set(target, key, value, receiver)
+    // 如果目标对象的代理对象是当前receiver
+    if (target === toRaw(receiver)) {
+      if (!hadKey) {
+        // 触发添加新属性 key 的通知
+        trigger(target, TriggerOpTypes.ADD, key, value)
+      } else if (hasChanged(value, oldValue)) {
+        // 触发修改属性 key 的通知
+        trigger(target, TriggerOpTypes.SET, key, value, oldValue)
+      }
+    }
+    // 返回赋值结果
+    return result
+  }
+}
+```
+结合上述代码来看，`set` 函数的实现逻辑很简单，主要就做两件事情：
+* 首先**通过 Reflect.set 求值**
+* 然后**通过 trigger 函数派发通知**，并依据 `key` 是否存在于 `target` 上来确定通知类型，即新增还是修改。
+
+整个 `set` 函数最核心的部分就是**执行 trigger 函数派发通知**，下面我们将重点分析这个过程。
+```ts {17,19-27,75-83,85}
+// packages/reactivity/src/effect.ts
+
+export function trigger(
+  target: object,
+  type: TriggerOpTypes,
+  key?: unknown,
+  newValue?: unknown,
+  oldValue?: unknown,
+  oldTarget?: Map<unknown, unknown> | Set<unknown>
+) {
+  // 根据 target 从 targetMap 中获取 depsMap
+  const depsMap = targetMap.get(target)
+  if (!depsMap) {
+    return
+  }
+  // 创建运行的 effects 集合
+  const effects = new Set<ReactiveEffect>()
+  // 添加 effects 的函数
+  const add = (effectsToAdd: Set<ReactiveEffect> | undefined) => {
+    if (effectsToAdd) {
+      effectsToAdd.forEach(effect => {
+        if (effect !== activeEffect || effect.options.allowRecurse) {
+          effects.add(effect)
+        }
+      })
+    }
+  }
+
+  if (type === TriggerOpTypes.CLEAR) {
+    // type 为 clear，触发所有的effects
+    depsMap.forEach(add)
+  } else if (key === 'length' && isArray(target)) {
+    // 判断目标对象为数组并且访问的属性为 length
+    depsMap.forEach((dep, key) => {
+      // ?
+      if (key === 'length' || key >= (newValue as number)) {
+        add(dep)
+      }
+    })
+  } else {
+    // SET | ADD | DELETE 操作之一，添加对应的 effects
+    if (key !== void 0) {
+      add(depsMap.get(key))
+    }
+
+    // 在 ADD | DELETE | Map.SET 时也添加迭代key的effects
+    switch (type) {
+      case TriggerOpTypes.ADD:
+        if (!isArray(target)) {
+          add(depsMap.get(ITERATE_KEY))
+          if (isMap(target)) {
+            add(depsMap.get(MAP_KEY_ITERATE_KEY))
+          }
+        } else if (isIntegerKey(key)) {
+          // 新下标增加 --> 数组长度改变
+          add(depsMap.get('length'))
+        }
+        break
+      case TriggerOpTypes.DELETE:
+        if (!isArray(target)) {
+          add(depsMap.get(ITERATE_KEY))
+          if (isMap(target)) {
+            add(depsMap.get(MAP_KEY_ITERATE_KEY))
+          }
+        }
+        break
+      case TriggerOpTypes.SET:
+        if (isMap(target)) {
+          add(depsMap.get(ITERATE_KEY))
+        }
+        break
+    }
+  }
+
+  const run = (effect: ReactiveEffect) => {
+    if (effect.options.scheduler) {
+      // 调度执行
+      effect.options.scheduler(effect)
+    } else {
+      // 直接运行
+      effect()
+    }
+  }
+  // 遍历执行 effects
+  effects.forEach(run)
+}
+```
+`trigger` 函数的实现也很简单，主要做了四件事情：
+* 通过 `targetMap` 拿到 `target` 对应的依赖集合 `depsMap`
+* 创建运行的 `effects` 集合
+* 根据 `key` 从 `depsMap` 中找到对应的 `effects` 添加到 `effects` 集合
+* 遍历 `effects` 执行相关的副作用函数
+
+所以每次 `trigger` 函数就是根据 `target` 和 `key` ，从 `targetMap` 中找到相关的所有副作用函数遍历执行一遍。
 ## 副作用函数 Effect
+在描述依赖收集和派发通知的过程中，我们都提到了一个词：**副作用函数**，依赖收集过程中我们把 `activeEffect`（当前激活副作用函数）作为依赖收集。
+
+下面就让我们看一下 `effect` 是什么吧。
+```ts {18,40-56}
+// packages/reactivity/src/effect.ts
+
+// 全局 effect 栈
+const effectStack: ReactiveEffect[] = []
+// 当前激活的 effect
+let activeEffect: ReactiveEffect | undefined
+
+export function effect<T = any>(
+  fn: () => T,
+  options: ReactiveEffectOptions = EMPTY_OBJ
+): ReactiveEffect<T> {
+  // 如果传入的回调函数 fn 为 effect
+  if (isEffect(fn)) {
+    // 则将 fn 重新赋值为其原始回调
+    fn = fn.raw
+  }
+  // 使用 createReactiveEffect 创建 effect 副作用函数
+  const effect = createReactiveEffect(fn, options)
+  // 如果 lazy 不为 true，则立即调用 effect
+  if (!options.lazy) {
+    effect()
+  }
+  // 返回effect
+  return effect
+}
+
+function createReactiveEffect<T = any>(
+  fn: () => T,
+  options: ReactiveEffectOptions
+): ReactiveEffect<T> {
+  const effect = function reactiveEffect(): unknown {
+    if (!effect.active) {
+      // 非激活状态，则判断如果非调度执行，则直接执行原始函数。
+      return options.scheduler ? undefined : fn()
+    }
+    // 全局 effect 栈中不存在当前 effect
+    if (!effectStack.includes(effect)) {
+      // 清空当前 effect 引用的依赖
+      cleanup(effect)
+      try {
+        // 开启全局 shouldTrack，允许依赖收集
+        enableTracking()
+        // 压栈
+        effectStack.push(effect)
+        // 将当前的 effect 赋值为全局激活的 effect
+        activeEffect = effect
+        // 执行原始回调
+        return fn()
+      } finally {
+        // 出栈
+        effectStack.pop()
+        // 恢复 shouldTrack 开启之前的状态
+        resetTracking()
+        // 指向当前栈顶 effect
+        activeEffect = effectStack[effectStack.length - 1]
+      }
+    }
+  } as ReactiveEffect
+  effect.id = uid++
+  // 标识是一个 effect 函数
+  effect._isEffect = true
+  // effect 自身的状态
+  effect.active = true
+  // 包装的原始回调函数
+  effect.raw = fn
+  // effect 对应的依赖，双向指针，依赖包含对 effect 的引用，effect 也包含对依赖的引用
+  effect.deps = []
+  // effect 的相关配置
+  effect.options = options
+  return effect
+}
+```
+结合上述代码来看，`effect` 内部通过执行 `createReactiveEffect` 函数去创建一个新的 `effect` 函数。
+
+为了和外部的 `effect` 函数区分，我们把它称作 `reactiveEffect` 函数，并且还给它添加了一些额外属性。
+
+这个 `reactiveEffect` 函数就是响应式的副作用函数，当执行 `trigger` 过程派发通知的时候，执行的 `effect` 就是它。
+
+这个 `reactiveEffect` 函数只需要做两件事情： 
+* 把全局的 `activeEffect` 指向它
+* 然后执行被包装的原始回调函数 `fn` 即可
+
+至于在执行过程中为什么需要 `effectStack` 这一个栈的结构呢？为什么不能直接执行 `activeEffect = effect` ？其实这是为了解决嵌套 `effect` 的问题。
+
+我们看如下的一个例子：
+```ts
+import { reactive, effect } from "@vue/reactivity"
+
+const counter = reactive({
+  num: 0, 
+  num2: 0 
+})
+function logCount() {
+  effect(logCount2) 
+  console.log('num:', counter.num) 
+}
+function count() {
+  counter.num++
+}
+function logCount2() {
+  console.log('num2:', counter.num2)
+}
+effect(logCount)
+count()
+```
+我们每次执行 `effect` 函数时，如果仅仅把 `reactiveEffect` 函数赋值给 `activeEffect`，那么针对这种嵌套场景，执行完 `effect(logCount2)` 后，`activeEffect` 还是 `effect(logCount2)` 返回的 `reactiveEffect` 函数。
+这样后续访问 `counter.num` 的时候，依赖收集对应的 `activeEffect` 就不对了，此时我们外部执行 `count` 函数修改 `counter.num` 后执行的便不是 `logCount` 函数，而是 `logCount2` 函数。
+
+最终输出的结果如下：
+```sh
+num2: 0
+num: 0
+num2: 0
+```
+而我们期望的结果应该如下：
+```sh
+num2: 0
+num: 0
+num2: 0
+num: 1
+```
+因此针对嵌套 `effect` 的场景，我们不能简单地赋值 `activeEffect` ，应该考虑到函数的执行本身就是一种入栈出栈操作。
+
+这里我们还注意到一个细节，在入栈前会**执行 cleanup 函数清空 reactiveEffect 函数对应的依赖**。 `cleanup` 函数的定义如下：
+```ts {7}
+// packages/reactivity/src/effect.ts
+
+function cleanup(effect: ReactiveEffect) {
+  const { deps } = effect
+  if (deps.length) {
+    for (let i = 0; i < deps.length; i++) {
+      deps[i].delete(effect)
+    }
+    deps.length = 0
+  }
+}
+```
+在执行 `track` 函数的时候，除了收集当前激活的 `effect` 作为依赖，还通过 `activeEffect.deps.push(dep)` 把 `dep` 作为 `activeEffect` 的依赖。
+
+这样在 `cleanup` 的时候我们就可以找到 `effect` 对应的 `dep` 了，然后把 `effect` 从这些 `dep` 中删除。
+
+那么为什么需要 `cleanup` 呢？是为了防止之前的副作用函数影响到当前的渲染触发，所以将其从之前被收集的 `dep`（ `depsMap` 中的 `key` 对应的 `dep` Set集合）中将其删除。
+## Readonly API
+如果用 `const` 声明一个对象变量，虽然不能直接对这个变量赋值，但我们可以修改它的属性。
+
+如果我们希望创建只读对象，不能修改它的属性，也不能给这个对象添加和删除属性，让它变成一个真正意义上的只读对象。
+
+显然，想实现上述需求就需要劫持对象，于是 `Vue 3.0` 在 `reactive API` 的基础上，设计并实现了 `readonly API`。
+```ts
+// packages/reactivity/src/reactive.ts
+
+export const readonlyMap = new WeakMap<Target, any>()
+
+export function readonly<T extends object>(
+  target: T
+): DeepReadonly<UnwrapNestedRefs<T>> {
+  return createReactiveObject(
+    target,
+    true,
+    readonlyHandlers,
+    readonlyCollectionHandlers
+  )
+}
+
+function createReactiveObject(
+  target: Target,
+  isReadonly: boolean,
+  baseHandlers: ProxyHandler<any>,
+  collectionHandlers: ProxyHandler<any>
+) {
+  if (!isObject(target)) {
+    return target
+  }
+  // target 已经是 Proxy 对象，直接返回
+  // 有个例外，如果是 readonly 作用于一个响应式对象，则继续
+  if (
+    target[ReactiveFlags.RAW] &&
+    !(isReadonly && target[ReactiveFlags.IS_REACTIVE])
+  ) {
+    return target
+  }
+  const proxyMap = isReadonly ? readonlyMap : reactiveMap
+  const existingProxy = proxyMap.get(target)
+  if (existingProxy) {
+    return existingProxy
+  }
+  const targetType = getTargetType(target)
+  if (targetType === TargetType.INVALID) {
+    return target
+  }
+  const proxy = new Proxy(
+    target,
+    targetType === TargetType.COLLECTION ? collectionHandlers : baseHandlers
+  )
+  proxyMap.set(target, proxy)
+  return proxy
+}
+```
+其实 `readonly` 和 `reactive` 函数的主要区别，就是执行 `createReactiveObject` 函数时的参数 `isReadonly` 及 传入的 `baseHandlers` 和 `collectionHandlers` 不同。
+
+首先调用时 `isReadonly` 传递的是 `true` ，其次是传递了 `readonlyHandlers` 和 `readonlyCollectionHandlers` 。
+
+我们来看一下其中 `readonlyHandlers` 的实现：
+```ts
+// packages/reactivity/src/baseHandlers.ts
+
+const readonlyGet = /*#__PURE__*/ createGetter(true)
+
+function createGetter(isReadonly = false, shallow = false) {
+  return function get(target: Target, key: string | symbol, receiver: object) {
+    if (key === ReactiveFlags.IS_REACTIVE) {
+      return !isReadonly
+    } else if (key === ReactiveFlags.IS_READONLY) {
+      return isReadonly
+    } else if (
+      key === ReactiveFlags.RAW &&
+      receiver === (isReadonly ? readonlyMap : reactiveMap).get(target)
+    ) {
+      return target
+    }
+    // ...
+    // isReadonly 为 true，不做依赖收集
+    if (!isReadonly) {
+      track(target, TrackOpTypes.GET, key)
+    }
+    // ...
+    if (isObject(res)) {
+      // 对于对象，依然递归将其变为 readonly
+      return isReadonly ? readonly(res) : reactive(res)
+    }
+    return res
+  }
+}
+
+export const readonlyHandlers: ProxyHandler<object> = {
+  get: readonlyGet,
+  set(target, key) {
+    if (__DEV__) {
+      console.warn(
+        `Set operation on key "${String(key)}" failed: target is readonly.`,
+        target
+      )
+    }
+    return true
+  },
+  deleteProperty(target, key) {
+    if (__DEV__) {
+      console.warn(
+        `Delete operation on key "${String(key)}" failed: target is readonly.`,
+        target
+      )
+    }
+    return true
+  }
+}
+```
+`readonlyHandlers` 和 `mutableHandlers` 的区别主要在 `get`、`set` 和 `deleteProperty` 三个函数上。
+
+很显然，作为一个只读的响应式对象，是不允许修改属性以及删除属性的，所以在非生产环境下 `set` 和 `deleteProperty` 函数的实现都会报警告，提示用户 `target` 是 `readonly` 的。
+
+至于 `get` ，则是它和 `reactive API` 最大的区别就是不做依赖收集了，这一点也非常好理解，因为它的属性不会被修改，所以就不用跟踪它的变化了。
+
+并且对于求解属性值，若是对象则以依旧递归的将其变为 `readonly`。
 ## Ref API
 ## Computed API
 ### 计算属性的运行机制
