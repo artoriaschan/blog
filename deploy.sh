@@ -15,5 +15,5 @@ git config user.email "544396118@qq.com"
 git add -A
 git commit -m 'deploy'
 # push 到 gh-pages 分支
-git push --force "https://${TOKEN}@github.com:artoriaschan/blog.git" "master:gh-pages"
+git push --force --quiet "https://${{ secrets.BLOG_DEPLOY_TOKEN }}@github.com:artoriaschan/blog.git" "master:gh-pages"
 cd -
