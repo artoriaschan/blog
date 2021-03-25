@@ -16,7 +16,7 @@ git add -A
 git commit -m "GitHub Actions Auto Builder at $(date +'%Y-%m-%d %H:%M:%S')"
 
 # push 到 gh-pages 分支
-remote_repo="https://${GITHUB_ACTOR}:${BLOG_DEPLOY_TOKEN}@github.com:artoriaschan/blog.git"
+remote_repo="https://${GITHUB_ACTOR}:${BLOG_DEPLOY_TOKEN}@github.com/artoriaschan/blog.git"
 
 git push --force --quiet "${remote_repo}" "master:gh-pages"
 cd -
