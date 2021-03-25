@@ -30,4 +30,8 @@ jobs:
       - name: install deps
         run: npm install
       - name: deploy blog
-        run: npm run docs:deploy
+        env:
+          BLOG_DEPLOY_TOKEN: ${{ secrets.BLOG_DEPLOY_TOKEN }}
+        run: |
+          echo $BLOG_DEPLOY_TOKEN
+          npm run docs:deploy
