@@ -32,12 +32,14 @@ jobs:
         uses: actions/cache@v1
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          key: ${{ runner.os }}-node-${{ hashFiles('**/yarn.lock') }}
       # 安装依赖
       - name: install deps
-        run: npm install
+        run: |
+          npm install yarn -g,
+          yarn
       # 发布
       - name: deploy blog
         env:
           BLOG_DEPLOY_TOKEN: ${{ secrets.BLOG_DEPLOY_TOKEN }}
-        run: npm run docs:deploy
+        run: yarn docs:deploy
