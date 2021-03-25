@@ -21,17 +21,23 @@ jobs:
     runs-on: ubuntu-latest
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v2
+      # 设置 node.js 环境
       - name: Setup node
         uses: actions/setup-node@v2
         with:
           node-version: '14'
+      # 设置包缓存目录，避免每次下载
+      - name: Cache node modules
+        uses: actions/cache@v1
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+      # 安装依赖
       - name: install deps
         run: npm install
+      # 发布
       - name: deploy blog
         env:
           BLOG_DEPLOY_TOKEN: ${{ secrets.BLOG_DEPLOY_TOKEN }}
-        run: |
-          echo $BLOG_DEPLOY_TOKEN
-          npm run docs:deploy
+        run: npm run docs:deploy
