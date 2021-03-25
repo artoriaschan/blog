@@ -13,8 +13,8 @@ git config user.name "artoriaschan"
 git config user.email "544396118@qq.com"
 # 提交
 git add -A
-git commit -m 'deploy'
+git commit -m "GitHub Actions Auto Builder at $(date +'%Y-%m-%d %H:%M:%S')"
 
 # push 到 gh-pages 分支
-git push --force --quiet https://$BLOG_DEPLOY_TOKEN@github.com:artoriaschan/blog.git master:gh-pages
+git push --force --quiet "https://$BLOG_DEPLOY_TOKEN@github.com:artoriaschan/blog.git" "master:gh-pages"
 cd -
