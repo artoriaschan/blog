@@ -2,20 +2,18 @@
 
 # 确保脚本抛出遇到的错误
 set -e
-
 # 生成静态文件
 npm run docs:build
-
 # 进入生成的文件夹
 cd src/.vuepress/dist
+# 初始化 git
 git init
 # 设置提交者信息
 git config user.name "artoriaschan"
 git config user.email "544396118@qq.com"
 # 提交
 git add -A
-git commit -m '[vuepress] deploy blog'
-
-# 如果发布到 https://<USERNAME>.github.io/<REPO>
-git push --force "https://${BLOG_DEPLOY}@github.com/wuxianqiang/vuepress-starter.git" "master:gh-pages"
+git commit -m 'deploy'
+# push 到 gh-pages 分支
+git push --force "https://${TOKEN}@github.com:artoriaschan/blog.git" "master:gh-pages"
 cd -
