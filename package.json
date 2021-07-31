@@ -16,10 +16,20 @@
     "@vuepress/plugin-back-to-top": "^1.7.1",
     "@vuepress/plugin-google-analytics": "^1.7.1",
     "@vuepress/theme-blog": "^2.3.2",
-    "vuepress": "^1.6.0",
-    "vuepress-plugin-container": "^2.1.5"
+    "dayjs": "^1.9.7",
+    "inquirer": "^7.1.0",
+    "json2yaml": "^1.1.0",
+    "vuepress": "^1.8.0",
+    "vuepress-plugin-container": "^2.1.5",
+    "vuepress-plugin-comment": "^0.7.3",
+    "vuepress-plugin-demo-block": "^0.7.2",
+    "vuepress-plugin-mathjax": "^1.2.8",
+    "vuepress-plugin-one-click-copy": "^1.0.5",
+    "vuepress-plugin-thirdparty-search": "^1.0.2",
+    "vuepress-plugin-zooming": "^1.1.7",
+    "vuepress-theme-vdoing": "^1.8.3",
+    "yamljs": "^0.3.0"
   },
   "dependencies": {
-    "vuepress-plugin-mathjax": "^1.2.8"
   }
 }
