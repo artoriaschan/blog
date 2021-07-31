@@ -1,6 +1,5 @@
 // 插件配置
 module.exports = [
-  '@vuepress/back-to-top',
   ["vuepress-plugin-mathjax", {}],
   [
     '@vuepress/google-analytics',
