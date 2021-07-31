@@ -79,15 +79,6 @@ module.exports = (options, context, api) => {
             lengthPerPage: 5,
           },
         },
-        // {
-        //   id: 'writing',
-        //   dirname: '_writings',
-        //   path: '/writings/',
-        //   itemPermalink: '/writings/:year/:month/:day/:slug',
-        //   pagination: {
-        //     lengthPerPage: 5,
-        //   },
-        // },
         {
           id: 'reship',
           dirname: '_reship',
@@ -118,10 +109,6 @@ module.exports = (options, context, api) => {
           text: "编程",
           link: "/posts/"
         },
-        // {
-        //   text: "文集",
-        //   link: "/writings/"
-        // },
         {
           text: "转载",
           link: "/reship/"
@@ -168,8 +155,6 @@ module.exports = (options, context, api) => {
       "@": path.resolve(__dirname, "../")
     },
     markdown: {
-      // config: md => {
-      // },
       externalLinks: { target: '_blank', rel: 'noopener noreferrer' },
       lineNumbers: true
     }
