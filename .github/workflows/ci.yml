@@ -19,6 +19,9 @@ on:
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
+env: # 设置环境变量
+  TZ: Asia/Shanghai # 时区（设置时区可使页面中的`最近更新时间`使用时区时间）
+
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   deploy:
