@@ -10,7 +10,7 @@ module.exports = {
   repo: 'https://github.com/artoriaschan', // 导航栏右侧生成Github链接
   searchMaxSuggestions: 10, // 搜索结果显示最大数
   lastUpdated: '上次更新', // 开启更新时间，并配置前缀文字   string | boolean (取值为git提交时间)
-  docsDir: 'docs', // 编辑的文件夹
+  docsDir: 'src', // 编辑的文件夹
   editLinks: true, // 启用编辑
   editLinkText: '编辑',
 
@@ -74,9 +74,9 @@ module.exports = {
   },
   footer: {
     // 页脚信息
-    createYear: 2019, // 博客创建年份
+    createYear: 2018, // 博客创建年份
     copyrightInfo:
-      'Evan Xu | <a href="https://github.com/xugaoyi/vuepress-theme-vdoing/blob/master/LICENSE" target="_blank">MIT License</a>', // 博客版权信息，支持a标签
+      'Artorias Chan | <a href="https://raw.githubusercontent.com/artoriaschan/blog/master/LICENSE" target="_blank">MIT License</a>', // 博客版权信息，支持a标签
   },
   // htmlModules // 插入hmtl(广告)模块
 }

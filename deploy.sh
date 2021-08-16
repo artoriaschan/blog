@@ -1,14 +1,15 @@
 #!/usr/bin/env sh
-
 # 确保脚本抛出遇到的错误
 set -e
 # 进入生成的文件夹
 cd src/.vuepress/dist
+# deploy to github pages
+echo 'b.onebitcode.xyz' > CNAME
 # 初始化 git
 git init
 # 设置提交者信息
-git config user.name "artoriaschan"
-git config user.email "544396118@qq.com"
+git config --global user.name "artoriaschan"
+git config --global user.email "danielovelol@163.com"
 # 提交
 git add -A
 git commit -m "GitHub Actions Auto Builder at $(date +'%Y-%m-%d %H:%M:%S')"

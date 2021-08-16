@@ -20,7 +20,7 @@ features:
     imgUrl: https://cdn.jsdelivr.net/gh/artoriaschan/image-hosting@master/blog/image-2.1jmvejqo75r4.webp
 title: index
 date: 2021-07-31 16:06:49
-permalink: /pages/f3395c/
+permalink: /
 categories: []
 tags: 
   - 
