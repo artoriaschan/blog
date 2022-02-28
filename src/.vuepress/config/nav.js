@@ -33,6 +33,7 @@ module.exports = [
     items: [
       { text: 'HTML', link: '/pages/8309a5b876fc95e3/' },
       { text: 'CSS', link: '/pages/0a83b083bdf257cb/' },
+      { text: 'Stylus', link: '/pages/9f15c1a281d8bedb/' },
     ],
   },
   {
@@ -42,6 +43,13 @@ module.exports = [
       { text: '技术文档', link: '/pages/9a7ee40fc232253e/' },
       { text: 'GitHub技巧', link: '/pages/4c778760be26d8b3/' },
       { text: 'Nodejs', link: '/pages/117708e0af7f0bd9/' },
+      { text: 'Interview', link: '/pages/33969f/' },
+      {
+        text: 'Rust',
+        items: [
+          { text: 'Rust 学习笔记', link: '/note/rust-notes/' },
+        ],
+      },
     ],
   },
   {
@@ -50,10 +58,6 @@ module.exports = [
     items: [
       { text: '前端精读', link: '/pages/ed5303/' },
     ],
-  },
-  {
-    text: '照片',
-    link: '/pages/e7ddeb/',
   },
   {
     text: '收藏',

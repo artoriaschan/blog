@@ -6,7 +6,7 @@ const themeConfig = require('./config/themeConfig.js');
 module.exports = (options, context, api) => {
   return {
     base: "/",
-    title: "拾光",
+    title: "三行代码",
     description: "Web development, Frontend, JavaScript",
     theme: "vdoing",
     head,

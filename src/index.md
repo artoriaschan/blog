@@ -1,6 +1,6 @@
 ---
 home: true
-heroText: 拾光
+heroText: 三行代码
 tagline: Web development, Frontend, JavaScript
 features: 
   - 
