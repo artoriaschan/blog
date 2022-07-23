@@ -4,7 +4,8 @@ set -e
 # 进入生成的文件夹
 cd src/.vuepress/dist
 # deploy to github pages
-echo 'b.onebitcode.xyz' > CNAME
+echo 'artoriaschan.xyz\n' > CNAME
+echo 'www.artoriaschan.xyz\n' >> CNAME
 # 初始化 git
 git init
 # 设置提交者信息
