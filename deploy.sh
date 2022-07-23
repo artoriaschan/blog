@@ -4,8 +4,8 @@ set -e
 # 进入生成的文件夹
 cd src/.vuepress/dist
 # deploy to github pages
-echo 'artoriaschan.xyz\n' > CNAME
-echo 'www.artoriaschan.xyz\n' >> CNAME
+echo 'artoriaschan.xyz' > CNAME
+echo 'www.artoriaschan.xyz' >> CNAME
 # 初始化 git
 git init
 # 设置提交者信息
